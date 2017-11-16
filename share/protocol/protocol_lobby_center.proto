@@ -1,0 +1,259 @@
+import "PacketDef.proto";
+
+package TgsProtocol;
+
+// 注册服务器信息
+message Lobby2Center_ServerInfo_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_SERVERINFO_NTF];
+
+	required uint32 server_id					    = 2;
+}
+
+// 发送跨服配置
+message Lobby2Center_ServerConf_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_SERVERCONF_NTF];
+
+	repeated GlobalGoodsConf goods 				= 2;	
+	optional ServerTeamConf  steam              = 3;
+}
+
+// GM 操作跨服时间
+message Lobby2Center_SetTime_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_SETTIME_NTF];
+
+	required int32  time_off		    	    = 2;
+}
+
+// 发送跨服战配置
+message Lobby2Center_ServerWarConf_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_SERVERWARCONF_NTF];
+
+	required ServerWarConf conf				    = 2;
+}
+
+message Lobby2Center_PlayerTurntable_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_PLAYERTURNTABLE_NTF];
+	required PlayerTurntableData   data         = 2;
+}
+message Lobby2Center_GetTurntableRank_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_GETTURNTABLERANK_REQ];
+	required uint64                uid        	= 2;
+	required uint64                charid       = 3;
+}
+
+message Center2Lobby_GetTurntableRank_Ret
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_GETTURNTABLERANK_RET];
+	required uint64                charid       = 2;
+	required uint64                uid        	= 3;
+	repeated PlayerTurntableData   data         = 4;
+}
+message Lobby2Center_CloseTurntableRank_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_CLOSETURNTABLERANK_NTF];
+	required uint64                uid        	= 2;
+}
+
+message CommonRankInfo
+{
+	required uint64                charid       = 1;
+	required uint32                rank         = 2;
+}
+message Center2Lobby_TurntableRankReward_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_TURNTABLERANKREWARD_NTF];
+	required uint64                uid        	= 2;
+	repeated CommonRankInfo        item         = 3;
+}
+
+// 从竞技场邀请玩家加入跨服战
+message Center2Lobby_GetArenaList_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_GETARENALIST_REQ];
+	optional bool                  needRobot    = 2;
+}
+message Lobby2Center_GetArenaList_Ret
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_GETARENALIST_RET];
+	repeated ClientServerWarPlayer item         = 2;
+}
+message RankInfo
+{
+	required uint64                charid       = 1;
+	required uint32                rank         = 2;
+	optional uint32                country      = 3;
+}
+message Center2Lobby_ServerWarRankReward_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_SERVERWARRANKREWARD_NTF];
+	required uint32                type         = 2;
+	repeated RankInfo              item         = 3;
+}
+
+//GM 指令操作
+message Lobby2Center_CloseSWar_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_CLOSESWAR_NTF];
+	required bool                  isclose      = 2;
+}
+message Lobby2Center_UpdateTeamHonor_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_UPDATETEAMHONOR_NTF];
+	required uint64                charid       = 2;
+	required uint32                oldhonor     = 3;
+	required uint32                newhonor     = 4;
+}
+message Center2Lobby_ServerTeamRankReward_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_SERVERTEAMRANKREWARD_NTF];
+	required uint32                type         = 2;
+	repeated CommonRankInfo        item         = 3;
+}
+// 更新跨服商城物品
+message Lobby2Center_ReduceGlobalGoodsNum_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_REDUCEGLOBALGOODSNUM_NTF];
+	required uint32                id           = 2;
+	required uint32                num          = 3;
+}
+// 向lobby 服务器更新商城购买物品
+message Center2Lobby_UpdateGlobalGoods_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_UPDATEGLOBALGOODS_NTF];
+	repeated GlobalGoodsConf       item         = 2;
+	optional bool                  isreset      = 3;
+}
+//一元夺宝开始初始化数据
+message Lobby2Center_Auction_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_AUCTION_SELF];
+	required uint32 			   endTime      = 2;
+	repeated ClientSource 			source 		= 3;
+	repeated uint32 				num 		= 4; 		//可购买总数量	
+	repeated uint32 				limit  		= 5; 		//最多购买
+	required uint32 				activityid  = 6;
+}
+//玩家夺宝
+message Lobby2Center_BuyAuction_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2CENTER_BUY_AUCTION_SELF];
+	required uint32 			   charid   	= 2;
+	required uint32 			   serverId 	= 3;
+	required uint32 			   photo        = 4;
+	required string 			   name         = 5;
+	required uint32 			   buyNum      	= 6;
+	required uint32    			   index 		= 7; //从1开始
+}
+//玩家夺宝购买返回
+message Center2Lobby_BuyAuction_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = CENTER2LOBBY_BUY_AUCTION_SELF];
+	required uint32 			   charid 		= 2;
+	required uint32 			   buyNum       = 3; //购买成功的数量
+	required uint32 			 	index 		= 4;
+	required uint32 			   errCode 		= 5; //0--成功 1--未开始 2--已售罄 3--购买上限
+}
+//夺宝活动结束
+message Center2Lobby_Auction_End_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = CENTER2LOBBY_AUCTION_END_SELF];
+	required uint32 			   type 		= 2;   //1---幸运奖 2----参与奖
+	required uint32 			   charid       = 3;
+	required uint32 				index 		= 4;
+}
+//夺宝活动结束
+message Center2Lobby_Auction_Clear_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2CENTER_CLEAN_AUCTION];
+}
+
+//夺宝取得幸运榜
+message Lobby2Center_GetList_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2CENTER_GET_LIST_SELF];
+	required uint32                charid       = 2;
+	required uint32 				serverid 	= 3;
+}
+// 夺宝相关
+message Center2Lobby_GetList_Ntf
+{
+
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = CENTER2LOBBY_GET_LIST_SELF];
+	required uint32                charid       = 2;
+	repeated AuctionInfo 			info 		= 3;
+	repeated uint32 				num 		= 4; 		//已购买总数量	
+	repeated uint32 				buyNum 		= 5; 		//自己购买的数量
+	repeated uint32 				win 		= 6;
+}
+
+// 阵图全服排行请求
+message Lobby2Center_GetGlobalServerRank_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_GETGLOBALSERVERRANK_REQ];
+	required uint64                charid       = 2;
+	required uint32                type         = 3;
+}
+
+// 阵图全服排行回复
+message Center2Lobby_GetGlobalServerRank_Ret
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = CENTER2LOBBY_GETGLOBALSERVERRANK_RET];
+	required uint64                charid       = 2;
+	optional uint32                myrank       = 3;
+	optional uint32                type         = 4;
+	repeated PlayerRankData        data         = 5;
+}
+
+// 阵图全服排行通知
+message Lobby2Center_PlayerGlobalServerRank_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2CENTER_PLAYERGLOBALSERVERRANK_NTF];
+	required PlayerRankData      data           = 2;
+}
+
+// 跨服排行
+message Lobby2Center_UpdateRank_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId 		= 1 [default = LOBBY2CENTER_UPDATERANK_NTF];
+	required ECenterRankType type = 2;
+	required uint64 charid = 3;
+	required uint64 value = 4;
+	required uint64 uid = 5;
+	required string charname = 6;
+	optional uint32 nationalId = 7;
+}
+message Lobby2Center_GetRank_Req
+{
+	optional TgsProtocol.PacketDef cmdId 		= 1 [default = LOBBY2CENTER_GETRANK_REQ];
+	required uint64 uid = 2;
+	required ECenterRankType type = 3;
+	required uint32  limitNum = 4;
+	required uint64 charid = 5;
+}
+message Center2Lobby_GetRank_Ret
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = CENTER2LOBBY_GETRANK_RET];
+	required uint64 			uid 			= 2;
+	required uint64 			charid 			= 3;
+	required uint32 			myrank 			= 4;
+	repeated CenterRankInfo rank_info 			= 5;
+}
+// 结算消耗排行
+message Lobby2Center_CloseConsumeRank_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2CENTER_CLOSECONSUMERANK_NTF];
+	required uint64 			uid 			= 2;
+	required ECenterRankType 	type 			= 3;
+}
+message Center2Lobby_ConsumeRankReward_Ntf
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = CENTER2LOBBY_CONSUMERANKREWARD_NTF];
+	required uint64 				uid 		= 2;
+	repeated CenterRankInfo 		rank_info 	= 3;
+}

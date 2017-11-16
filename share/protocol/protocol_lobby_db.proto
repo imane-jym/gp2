@@ -1,0 +1,1041 @@
+import "PacketDef.proto";
+
+package TgsProtocol;
+
+message DbSystemSetting
+{
+	required uint64 modeMask			= 1;
+	required uint64 modeReserver		= 2;
+	required uint32 showCharId			= 3;
+	required uint32 rcvInvite			= 4;
+	required uint32 showAudioeff		= 5;
+	required uint32 showMusic			= 6;
+	required uint32 showEffect			= 7;
+	required uint32 hidDensuit			= 8;
+	required bytes  reserveBuff			= 9;
+}
+
+message LOBBY2DB_LoadCharReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOAD_CHARACTER_REQ];
+
+	required uint64 CharId					= 2;
+}
+message NationalDB
+{
+	required uint32 nationalId = 1;
+	required uint32 lastChangeTime = 2;
+}
+
+message DB2LOBBY_LoadCharRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOAD_CHARACTER_RET];
+
+	required uint32			ret						= 2;
+	required uint64			charId					= 3;
+	optional bytes			charName				= 4;
+	optional uint32			cash					= 5;	// 金币
+	optional uint32			gold					= 6;	// 钻石
+	optional uint32			level					= 7;
+	optional uint32			exp						= 8;
+	optional uint32			curStamina				= 9;
+	optional uint32			maxStamina				= 10;
+	optional uint32			createTime				= 11;
+	optional uint32			offlineTime				= 12;
+	optional uint32			updateStaminaTime		= 13;
+	optional uint32			bitFlag					= 14;	// 首次行为标记 emBitFlag
+	optional bytes			quest					= 15;	// 任务 DbQuest
+	optional bytes			evaluation				= 16;	// 副本评价  DBEvaluationList
+	optional bytes			chapterReward			= 17;	// 章节奖励 不用了
+	optional uint32			vipExp					= 18;	// Vip经验
+	optional uint32			vipLevel				= 19;	// Vip等级
+	repeated uint32			formation				= 20;	// 出战英雄
+	optional uint32			heroBagNum				= 21;	// 不用了
+	optional bytes			heroList				= 22;	// 英雄 DBHeroList
+	optional uint32			gender					= 23;   // 性别
+	optional uint32			photo					= 24;   // 头像
+	optional bytes			essenceItem				= 25;   // 核心价值 用于判定物品掉落
+	repeated uint32			RefreshPrice			= 26;	// 刷新价格
+	optional bytes			festivity				= 27;   // 名将副本
+	optional uint32			lockChatEndTime			= 28;   // 聊天解锁时间 
+	optional uint32			dayChatTimes			= 29;   // 世界聊天次数
+	optional uint32			skillPoint				= 30;   // 剩余英雄技能点数
+	optional uint32			updateSkillPointTime	= 31;	// 最后一次恢复技能点时间
+	optional uint32			energy					= 32;	// 精力
+	optional uint32			updateEnergyTime		= 33;	// 最后一次恢复精力时间
+	optional bytes			equipNew				= 34;   // 新装备 DBEquipNewList
+	repeated uint32			arenaFormation			= 35;	// 竞技场阵容
+	optional uint32			recharge				= 36;   // 充值
+	optional uint32			progress				= 37;	// 进度
+	optional bytes			activity				= 38;	// 运营活动
+	optional string			assistFormation			= 39;	// 助阵
+	optional bytes			chapterBox				= 40;	// 章节宝箱
+	optional string         coins                   = 41;   // 其他货币
+	optional uint32			leavePoint				= 42;	// 流失点
+	optional uint32			onlinetime				= 43;	// 登录时间
+	optional uint32			gmFlushTime				= 44;	// gm 刷新时间
+	optional uint32			isshopbuy				= 45;
+	optional string         deviceid                = 46;   // 设备号
+	optional uint32			diamondPay				= 47;	// 真实购买钻石
+	optional string			recommfriends		    = 48;	// 推荐的下线玩家们
+	optional bytes			prizeInfo				= 49;	// 奖励
+	optional uint32			avoidBattle				= 50;	// 免战时间
+	optional uint32			accOnlineTime			= 51;	// 累计在线时间
+	optional string			itemGot     			= 52;	// 每日物品已获取数量
+	repeated uint32			buyedPrice			    = 53;
+	optional uint32			position				= 54;   // 官职
+    optional uint32			lastUpdateTime			= 55;   // 上次凌晨刷新时间
+	optional uint32			crusadeMaxId			= 56;   //
+	optional uint32			crusadeCurId			= 57;   //	
+	optional string         int32attr               = 58;
+	optional string			AwakeHeroes 		    = 59;	// 这里存的是觉醒的英雄
+	optional string         tombinfo                = 60;
+	repeated uint32 		markList 				= 61; 	// 商品标记列表
+	optional string			rechargeChoose			= 62;	// 充值开关选项 用于控制选择APPSTORE还是第三方充值
+	optional NationalDB 	national 				= 63; 	// 国籍
+}
+
+
+message LOBBY2DB_CharAdvancedInfo
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_GET_ADVANCED_CHARINFO_REQ];
+
+	required uint64 charId						= 2;
+};
+
+message DbSevenDayActive
+{
+	repeated DbSevenDayActiveElement mission			= 1;
+}
+
+message DbSevenDayActiveElement
+{
+	required uint32 index						= 1;
+	required uint32 status						= 2;
+	required uint32 step					 	= 3;
+}
+
+message DbRebelArmy
+{
+	required uint64 		ownerUserId  = 1;
+	required uint32			curHealth	 = 2;
+	required uint32			createTime	 = 3;
+	required uint32			index		 = 4;
+	required uint32			state		 = 5;
+	required uint32			attackTime	 = 6;
+	required uint32			bIsShare	 = 7;
+	required uint32			lv			 = 8;
+	required uint32			battleValue	 = 9;
+	required uint32			freeCount	 = 10;
+	required uint32			countRecoverTime = 11;
+	required uint32			startLv		 = 12;
+	required uint32			happenTime	 = 13;
+	required uint32			happenCount  = 14;
+	optional uint32			dayharm		 = 15;
+	optional uint32			dayexploits  = 16;
+	optional uint64         dayharmBig   = 17; // 为了版本兼容 启用新的 老的不删除
+	optional uint64			curHealthBig	= 18; // 为了版本兼容 启用新的 老的不删除
+}
+
+message DbActionRecord
+{
+	repeated ActionRecord	action = 1;
+};
+
+message DbRaidTeam
+{
+	required uint32	count		= 1;
+	required uint32 lucky		= 2;
+};
+
+message DBServerCompareGot
+{
+	required uint32 			time = 1;
+	required uint32 			mergeTimes = 2;
+	repeated ServerCompareGot 	gots = 3;
+}
+message DB2LOBBY_CharAdvancedInfo
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GET_ADVANCED_CHARINFO_RET];
+
+	required uint64			charId					 = 2;
+	required uint32			ret						 = 3;
+	optional bytes			goods					 = 4;   // 神秘商店 DBShopList
+	optional uint32			openCopperBoxNum		 = 5;	//每天开免费铜钱宝箱的次数
+	optional uint32			lastOpenCopperBoxTime	 = 6;	//上一次开铜钱宝箱的时间
+	optional uint32			lastOpenDiamondBoxTime	 = 7;	//上一次开钻石宝箱的时间
+	optional uint32			totalOpenCopperBoxTimes	 = 8;	//开铜钱宝箱总次数
+	optional uint32			totalOpenDiamondBoxTimes = 9;	//开钻石宝箱总次数
+	repeated DBMailInfo		mailList				 = 10;	//邮件列表
+	optional uint32			skillPoint				 = 11;	//剩余的技能点
+	optional uint32			updateSkillPointTime	 = 12;	//最后一次恢复技能点时间
+	repeated uint32			exFormation				 = 13;	//远征上阵英雄
+	optional bytes			myHeros					 = 14;	//自己的英雄状态 DBExpeditionHeroList
+	optional bytes			DefenseHeros			 = 15;	//关卡英雄状态 DBExpeditionDefense
+	optional uint32			difficulty				 = 16;	//难度系数
+	optional uint32			lastArenaTime			 = 17;	//最后一次挑竞技场时间
+	optional uint32			dailyArenaTimes			 = 18;	//当天挑战次数
+	optional uint32			bestArenaRank			 = 19;	//最高名次
+	repeated uint32			arFormation				 = 20;	//防守阵容 竞技场
+	optional uint32			totalArenaWin			 = 21;	//竞技场总胜利次数
+	optional bytes			arenaLog				 = 22;	//战斗记录 DBArenaLog
+	optional uint32			topThreeTime			 = 23;	//最后进入前三名时间
+	repeated uint32			ackFormation			 = 24;	//竞技场进攻阵容
+	optional uint32			dailyOpenDiamondBoxTimes = 25;	//每天抽钻石宝箱次数
+	optional uint32			signIn				     = 26;	//签到信息
+	//optional uint32			bSignInToday			 = 27;	//今天是否签到(不用了1015-7-16)
+	//optional uint32			compensationNum			 = 28;	//本月已经补签的次数(不用了1015-7-16)
+	optional uint32			totalCopperMineNum		 = 29;	//总的挖铜矿次数
+	optional uint32			totalSilverMineNum		 = 30;	
+	optional uint32			totalDiamondMineNum		 = 31;	
+	optional uint32			dailyCopperMineNum		 = 32;	//当天挖铜矿次数
+	optional uint32			dailySilverMineNum		 = 33;	
+	optional uint32			dailyDiamondMineNum		 = 34;
+	optional bytes			friendInfo				 = 35;	//好友DBFriendList
+	optional bytes			shopFlush				 = 36;
+	optional DbSevenDayActive sevenDay				 = 37;	// 七日活动
+	optional DbRebelArmy    rebelArmy				 = 38;	// 叛军
+	optional DbActionRecord	action					 = 39;	// 行为次数记录
+	optional DbRaidTeam		raidTeam				 = 40;  // 组队
+	optional DbMonthCard	card					 = 41;	// 月卡
+	optional DbDrop			drop					 = 42;	// 掉落
+	optional string         goodsBuyed               = 43;  // 已购买商品
+	optional uint32			firstChargeChoose		 = 44;	// 第一次充值选择
+	optional uint32			continueChargeChoose	 = 45;	// 持续充值活动选择
+	optional string			continueCharge			 = 46;	// 持续充值活动
+	optional DbHandBook		handbook				 = 47;	// 图鉴数据
+	optional DBSecretHole   secrethole               = 48;  // 秘境
+	optional DBReturnTask   returntask               = 49;
+	optional PlayerTerritoryInfo territory           = 50;
+	optional DiagramMap	 	diagramMap 				 = 51; 	// 玩家的阵图激活数据
+	optional GhostList		ghostActiveList 		 = 52; 	// 将灵激活的阵图
+	optional uint32 		cheerId 				 = 53; 	// 援军助威
+	repeated uint32         titleList                = 54;  // 称号列表
+	optional EpicBossList 	epicbosslist 			 = 55; 	// 史诗关卡boss列表
+	repeated uint32 		sevengifts			 	 = 57; 	// 个人七日大礼
+	repeated uint32 		onlineRewards 			 = 58; 	// 在线奖励
+	optional RetrieveDB 	retrieve 				 = 59; 	// 资源找回
+	repeated PassWordState 	chatpasswd				 = 60;  // 聊天秘籍
+	repeated uint32 		chatCount 				 = 61; 	// 聊天次数
+	optional DBServerCompareGot 	compare_gots 	 = 62; 	// 合服比拼领取状态
+	optional FarmDB 		farm 					 = 63; 	// 农场信息
+}
+
+message LOBBY2DB_LoadCharListReq //不用
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOAD_CHARLIST_REQ];
+
+	required uint64 accountId				= 2;
+	required uint64	sessionid				= 3;
+}
+
+message SimpleDBCharInfo // 不用
+{
+	required uint64  charId					= 1;
+	optional bytes  charName				= 2;
+	optional uint32	 profession				= 3;
+	optional uint32  level					= 4;
+	optional bytes	 avatar					= 5;
+}
+
+message DB2LOBBY_LoadCharListRet // 不用
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOAD_CHARLIST_RET];
+
+	required uint32  ret					= 2;
+	required uint64	 sessionid				= 3;
+	repeated SimpleDBCharInfo	charList	= 4;
+}
+
+message LOBBY2DB_CreateCharReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_CREATE_CHARACTER_REQ];
+	required uint64		charId					= 2;
+	required bytes		charName				= 3;
+	required string     deviceId                = 4;
+}
+
+message DB2LOBBY_CreateCharRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_CREATE_CHARACTER_RET];
+	required uint32		ret						= 2;
+	required uint64		charId					= 3;
+}
+
+message LOBBY2DB_SaveCharReq
+{
+	optional TgsProtocol.PacketDef cmdId			= 1 [default = LOBBY2DB_SAVE_CHARACTER_REQ];
+	required uint64			serialno				= 2;
+	required uint64			charid					= 3;
+	required bytes			charname				= 4;
+	required uint32			level					= 5;
+	required uint32			exp						= 6;
+	required uint32			cash					= 7;
+	required uint32			gold					= 8;
+	required uint32			curStamina				= 9;
+	required uint32			maxStamina				= 10;
+	required uint32			vipLevel				= 11;	// vip等级
+	repeated uint32			formation				= 12;	// 出战英雄
+	required uint32			vipExp					= 13;	// Vip经验
+	required uint32			offlinetime				= 14;
+	required uint32			updateStaminaTime		= 15;
+	required uint32			bitFlag					= 16;
+	optional bytes			quest					= 17;
+	optional bytes			evaluation				= 18;	// 副本评价
+	optional bytes			chapterReward			= 19;	// 章节奖励
+	required uint32			heroBagNum				= 20;
+	optional bytes			heroList				= 21;
+	required uint32			gender					= 22;   // 性别
+	optional uint32			photo					= 23;   // 头像
+	optional bytes			essenceItem				= 24;   // 核心价值
+	repeated uint32			RefreshPrice			= 25;	// 刷新价格
+	optional bytes			festivity				= 26;   // 名将副本 
+	optional uint32			dayChatTimes			= 27;   // 世界聊天次数
+	optional uint32			skillPoint				= 28;   // 剩余英雄技能点数
+	optional uint32			updateSkillPointTime	= 29;	// 最后一次恢复技能点时间
+	optional uint32			energy					= 30;	// 精力
+	optional uint32			updateEnergyTime		= 31;	// 最后一次恢复精力时间
+	optional bytes			equipNew				= 32;   // 新装备
+	repeated uint32			arenaFormation			= 33;	// 竞技场阵容
+	optional uint32			recharge				= 34;	// 充值
+	optional uint32			progress				= 35;	// 进度
+	optional bytes			activity				= 36;	// 运营活动
+	optional string			assistFormation			= 37;	// 助阵
+	optional uint64			effect					= 38;	// 战斗力
+	optional bytes			chapterBox				= 39;	// 章节宝箱
+	optional string         coins                   = 40;   // 其他货币
+	required uint32			maxNormalChallenge		= 41;	// 最大普通挑战
+	required uint32			maxEliteChallenge		= 42;	// 最大精英挑战
+	required uint32			leavePoint				= 43;	// 流失点
+	required uint32			onlinetime				= 44;	// 登录时间
+	required uint32			gmflushtime				= 45;	// GM 刷新时间
+	optional uint32			isshopbuy				= 46;
+	required uint32			diamondPay				= 47;	// 真实购买钻石
+	optional string			recommfriends		    = 48;	// 推荐的下线玩家们
+	optional bytes			prizeInfo				= 49;	// 奖励礼包
+	optional uint32			avoidBattle				= 50;	// 免战时间
+	optional uint32			accOnlineTime			= 51;	// 累计在线时间
+	optional string			itemGot     			= 52;	// 每日物品已获取数量
+	repeated uint32			buyedPrice			    = 53;
+	optional uint32			position				= 54;   // 官职
+    optional uint32			lastUpdateTime			= 55;   // 上次凌晨刷新时间
+	optional uint32			crusadeMaxId			= 56;   //
+	optional uint32			crusadeCurId			= 57;   //
+	optional string         int32attr               = 58;
+	optional string         AwakeHeroes             = 59;   ///觉醒英雄
+	optional string         tombinfo                = 60;
+	repeated uint32 		markList 				= 61;   // 商品标记列表
+	optional string			rechargeChoose			= 62;	// 充值开关选项 用于控制选择APPSTORE还是第三方充值
+	optional NationalDB 	national 				= 63; 	// 国籍
+}
+
+message DB2LOBBY_SaveCharRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_SAVE_CHARACTER_RET];
+	required uint64 serialno				= 2;		// 没用
+	required uint32 ret						= 3;
+	required uint64 charId					= 4;
+}
+
+// 保存高级角色信息
+message LOBBY2DB_SaveAdvancedCharReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_SAVE_ADVANCED_CHARACTER_REQ];
+	required uint64			charId						= 2;
+	optional bytes			shopGoods					= 3;	//神秘商店
+	required uint32			openCopperBoxNum			= 4;	//每天开免费铜钱宝箱的次数
+	required uint32			lastOpenCopperBoxTime		= 5;	//上一次开铜钱宝箱的时间
+	required uint32			lastOpenDiamondBoxTime		= 6;	//上一次开钻石宝箱的时间
+	required uint32			totalOpenCopperBoxTimes		= 7;	//开铜钱宝箱总次数
+	required uint32			totalOpenDiamondBoxTimes	= 8;	//开钻石宝箱总次数
+	repeated DBMailInfo		mailList					= 9;	//邮件列表
+	optional uint32			skillPoint					= 10;	//剩余的技能点
+	optional uint32			updateSkillPointTime		= 11;	//最后一次恢复技能点时间
+	repeated uint32			exFormation					= 12;	//远征上阵英雄
+	optional bytes			myHeros						= 13;	//自己的英雄状态
+	optional bytes			DefenseHeros				= 14;	//关卡英雄状态
+	optional uint32			difficulty					= 15;	//难度系数
+	optional uint32			lastArenaTime				= 16;	//最后一次挑竞技场时间
+	optional uint32			dailyArenaTimes				= 17;	//当天挑战次数
+	optional uint32			bestArenaRank				= 18;	//最高名次
+	repeated uint32			arFormation					= 19;	//防守阵容
+	optional uint32			totalArenaWin				= 20;	//竞技场总胜利次数
+	optional bytes			arenaLog					= 21;	//战斗记录
+	optional uint32			topThreeTime				= 22;	//最后进入前三名时间
+	repeated uint32			ackFormation				= 23;	//竞技场进攻阵容
+	optional uint32			dailyOpenDiamondBoxTimes	= 24;	//每天抽钻石宝箱次数
+	optional uint32			signIn					    = 25;	//签到信息
+	//optional uint32			bSignInToday				= 26;	//今天是否签到(不用了1015-7-16)
+	//optional uint32			compensationNum				= 27;	//本月已经补签的次数(不用了1015-7-16)
+	optional uint32			totalCopperMineNum			= 28;	
+	optional uint32			totalSilverMineNum			= 29;	
+	optional uint32			totalDiamondMineNum			= 30;	
+	optional uint32			dailyCopperMineNum			= 31;	
+	optional uint32			dailySilverMineNum			= 32;	
+	optional uint32			dailyDiamondMineNum			= 33;
+	optional bytes			friendInfo					= 34;	//好友
+	optional bytes			shopFlush					= 35;	//商店刷新	
+	optional DbSevenDayActive sevenDay				 	= 36;	// 七日活动
+	optional DbRebelArmy    rebelArmy				 	= 37;	// 叛军
+	optional DbActionRecord	action						= 38;	// 行为次数记录
+	optional DbRaidTeam		raidTeam					= 39;	// 组队
+	optional DbMonthCard	card					 	= 40;	// 月卡
+	optional DbDrop			drop						= 41;	// 掉落
+	optional string         goodsBuyed                  = 42;   // 已购买商品
+	optional uint32			firstChargeChoose			= 43;	// 第一次充值选择
+	optional uint32			continueChargeChoose		 = 44;	// 持续充值活动选择
+	optional string			continueCharge			 = 45;	// 持续充值活动
+	optional DbHandBook		handbook				 = 46;	// 图鉴数据
+	optional DBSecretHole   secrethole               = 47;  // 秘境
+	optional DBReturnTask   returntask               = 48;
+	optional PlayerTerritoryInfo territory           = 49;
+	optional DiagramMap		diagramMap 				 = 50; 	// 玩家的阵图激活数据
+	optional GhostList		ghostActiveList 		 = 51; 	// 将灵激活的阵图
+	optional uint32 		cheerId 				 = 52; 	// 援军助威
+	repeated uint32 		titleList 				 = 53; 	// 称号列表
+	optional EpicBossList 	epicbosslist 			 = 54; 	// 史诗关卡boss列表
+	repeated uint32 		sevengifts 			 	 = 56; 	// 个人七日大礼
+	repeated uint32 		onlineRewards 			 = 57; 	// 在线奖励
+	optional RetrieveDB		retrieve 				 = 58; 	// 资源找回
+	repeated PassWordState 	chatpasswd 				 = 59;  // 聊天秘籍
+	repeated uint32 		chatCount 				 = 60; 	// 聊天次数
+	optional DBServerCompareGot 	compare_gots 	 = 61; 	// 合服比拼领取状态
+	optional FarmDB 		farm 					 = 62; 	// 农场信息
+}
+
+// 资源找回db结构
+message RetrieveDB
+{
+	repeated RetrieveState 	today 		= 1;
+	repeated RetrieveState 	yesterday 	= 2;
+}
+
+message DB2LOBBY_SaveAdvancedCharRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_SAVE_ADVANCED_CHARACTER_RET];
+	required uint32		ret						= 2;
+	required uint64		charId					= 3;
+	
+}
+// 加载背包
+ message LOBBY2DB_LoadBagReq			
+ {
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOAD_BAG_REQ];
+	required uint64 charId					= 2;
+ }
+ 
+ message DB2LOBBY_LoadBagRet
+ {
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOAD_BAG_RET];
+	required uint32		ret					= 2;
+	required uint64		charid				= 3;
+	optional uint32		curBagNum			= 4;	//没用
+	optional bytes		bag					= 5;	// DbBagInfo
+	optional SeedBag 	seedBag 			= 6;
+ }
+
+ // 登陆 附带token 检测 
+message DB2LOBBY_CheckTokenRet
+{
+	optional TgsProtocol.PacketDef cmdId = 1 [default = DB2LOBBY_CHECKTOKEN_RET ];
+	required uint32	ret	= 2;
+	required uint64	charId	= 3;
+	required bytes deviceName = 4;
+	required bytes deviceType = 5;
+	required bytes deviceUid = 6;
+}
+ 
+message LOBBY2DB_SaveBagReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_SAVE_BAG_REQ];
+	required uint64  charId					=2;
+	optional uint32  isSaveBag				=3;
+	optional uint32  curBagNum				=4;
+	optional bytes	 bag					=5;
+	optional SeedBag seedBag 				=6;
+}
+
+message LOBBY2DB_AddDiamondReq	// 不用
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_ADDDIAMOND_REQ];
+	required uint64  charId					=2;
+	optional uint32  addDiamond				=3;
+}
+
+message LOBBY2DB_ChangeNameCheckReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_CHANGE_NAME_CHECK_REQ];
+	required uint64  charId					=2;
+	required bytes	newName					=3;		// 名字
+	required uint32 cmd						= 4;	// 请求指令
+} 
+
+message DB2LOBBY_ChangeNameCheckRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_CHANGE_NAME_CHECK_RET];
+	required uint32 ret							= 2;
+	required uint64 charId						= 3;
+	required bytes	newName						= 4;	// 名字
+	required uint32 cmd							= 5;
+}
+
+/*
+// 至尊召唤热点包
+message DB2LOBBY_SupremeHotBoxNtf
+{
+	optional TgsProtocol.PacketDef cmdId= 1 [default = DB2LOBBY_SUPREMEHOTBOX_NTF];
+	required uint32 weekBoxId= 2; 	// 周热点
+	required uint32 dayBox_1= 3; 	// 日热点
+	required uint32 dayBox_2= 4; 	// 日热点2
+	required uint32 dayBox_3= 5;
+	optional bytes 	arenaHeros= 7; 	//竞技场列表 DBArenaRank
+	optional uint32 openServerTime= 8; 	//开服时间
+	optional HalfBuy  halfBuy= 9; 	//半价购买限次
+    optional Achieve achieve                            = 10;    //服务器成就 
+	optional string globalItemGot                       = 11;    //全服物品掉落(已掉落数量)
+	optional string passwordGot                         = 12;    //秘籍已使用数
+	optional string sevenDayRank                        = 13;    //七天比拼
+	optional OptGlobal Opt    		    				= 14; 	//运营平台共有数据
+	optional string boxdrop                             = 15;   //秘籍已使用数
+	repeated DBMailInfo mailList    					= 16; 	// 全服邮件
+	optional uint32 AstrologyCountry                    = 17;   //占星武将阵容
+	optional uint32 AstrologyCountryNextTime            = 18;   //占星武将下次更换时间
+	optional uint32 rebateCount                         = 19;   //购买开服基金总人数
+	optional uint32 heroChangedTime                     = 20;   //1.7版本,老玩家英雄id更改的时间
+	repeated uint32 chatpasswd 							= 21; 	// 今日可用聊天秘籍
+}
+*/
+message LOBBY2DBLoadWorldReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOAD_WORLD_REQ];
+}
+
+// 全局数据配置加载
+message DB2LOBBYLoadWorldRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOAD_WORLD_RET];
+	required uint32 ret									= 2;	// 错误表明
+	required uint32 weekBoxId							= 3;	// 周热点
+	required uint32 dayBox_1							= 4;	// 日热点
+	required uint32 dayBox_2							= 5;	// 日热点2
+	required uint32 dayBox_3							= 6;
+	optional bytes	arenaHeros							= 8;	//竞技场列表 DBArenaRank
+	optional uint32	openServerTime						= 9;	//开服时间
+	optional HalfBuy  halfBuy							= 10; 	//半价购买限次
+    optional Achieve achieve                            = 11;    //服务器成就 
+	optional string globalItemGot                       = 12;    //全服物品掉落(已掉落数量)
+	optional string passwordGot                         = 13;    //秘籍已使用数
+	optional string sevenDayRank                        = 14;    //七天比拼
+	optional OptGlobal opt	        					= 15;	//运营平台共有数据
+	optional string boxdrop                             = 16;   //秘籍已使用数
+	repeated DBMailInfo		mailList				    = 17;	// 全服邮件
+	optional uint32 AstrologyCountry                    = 18;   //占星武将阵容
+	optional uint32 AstrologyCountryNextTime            = 19;   //占星武将下次更换时间
+	optional uint32 rebateCount                         = 20;   //购买开服基金总人数
+	optional uint32 heroChangedTime                     = 21;   //1.7版本,老玩家英雄id更改的时间
+	repeated uint32 chatpasswd 							= 22; 	// 今日可用聊天秘籍
+	optional uint32	maxRobotId							= 23;	// 最大机器人ID
+	repeated string robotName							= 24;	// 机器人名字集合
+	repeated uint64 robotIdCollection					= 25;	// 全局机器人ID集合
+	repeated uint32	robotIndex							= 26;	// 全局机器人模板ID 和robotIdCollection 一致的
+	optional string monthcard 							= 27; 	// 月卡每日奖励
+	optional uint32 heroQualityChangedTime              = 28;   //2.3版本,老玩家英雄品质更改的时间
+}
+
+message DB2LOBBY_Server
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_SERVER];
+	required uint32 ret							= 2;
+}
+
+message LOBBY2DB_UpdateSupremeHotBox
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATE_SUPREMEHOTBOX];
+	required uint32 weekBoxId					= 2;
+	required uint32 dayBox_1					= 3;
+	required uint32 dayBox_2					= 4;
+	required uint32 dayBox_3					= 5;
+	required uint32	openServerTime				= 6;	//开服时间
+	optional HalfBuy  halfBuy					= 7; 	//半价购买限次
+    optional Achieve achieve                    = 8;    //服务器成就 
+	optional string globalItemGot               = 9;    //全服物品掉落(已掉落数量)
+	optional string passwordGot                 = 10;   //秘籍已使用数
+	optional string sevenDayRank                = 11;   //七天比拼
+	optional OptGlobal opt						= 12;	//运营平台共有数据
+	optional string boxdrop                     = 13;   //全服box掉落
+	optional uint32 AstrologyCountry            = 14;   //占星武将阵容
+	optional uint32 AstrologyCountryNextTime    = 15;   //占星武将下次更换时间
+	optional uint32 rebateCount                 = 16;   //购买开服基金总人数
+	optional uint32 heroChangedTime             = 17;   //1.7版本,老玩家英雄id更改的时间
+	repeated uint32 chatpasswd 					= 18; 	// 今日可用聊天秘籍
+	optional string monthcard 					= 19; 	// 月卡每日奖励
+	optional uint32 heroQualityChangedTime      = 20;   //2.3版本,英雄品质更改的时间
+}
+// 更新竞技场
+message LOBBY2DB_UpdateArenaRank
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATE_ARENA_RANK];
+	optional bytes		arenaHeros			= 2;	// DBArenaRank
+}
+// 更新竞技场Log
+message LOBBY2DB_UpdateArenaLog
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATE_ARENA_LOG];
+	required uint64			charId				= 2;
+	required DBArenaLog		arenaLog			= 3;
+}
+// 添加离线邮件
+message LOBBY2DB_OfflineMail
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_OFFLINE_MAIL];
+	required uint64			charId				= 2;
+	required DBMailInfo		mailinfo			= 3;
+}
+// 载入离线邮件
+message DB2LOBBY_LoadOfflineMail
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = DB2LOBBY_LOADOFFLINE_MAIL];
+	required uint64 		charId 				= 2;
+	repeated DBMailInfo     mailList            = 3;
+}
+message LOBBY2DB_LoadOfflineMail
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_LOADOFFLINE_MAIL];
+	required uint64 		charId 				= 2;
+}
+ // 登陆 附带token 检测 
+message LOBBY2DB_CheckTokenReq
+{
+	optional TgsProtocol.PacketDef cmdId = 1 [default = LOBBY2DB_CHECKTOKEN_REQ ];
+	required uint64	charId	= 2;
+	required bytes deviceName = 3;
+	required bytes deviceType = 4;
+	required bytes deviceUid = 5;
+}
+
+message LOBBY2DB_Server
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_SERVER];
+	required uint32 serverId							= 2;
+	required bytes localIp								= 3;
+	optional uint32 port								= 4;
+	optional uint32 onlineNum							= 5;
+	optional bytes version								= 6;
+	optional string name                                = 7;
+	optional string sourceIp                            = 8;
+	optional string sourceDir                           = 9;
+	optional uint32 canlogin                            = 10;
+	optional uint32 status                              = 11;
+	optional string sourceVersion                       = 12;
+	optional uint32 loginStrategyId                     = 13;
+	optional bytes ip									= 14;
+	optional uint32	canRegister							= 15;
+	optional uint32 mergeTimes 							= 16;
+	optional uint32 lastMergetime 						= 17;
+	optional uint32 centerPort 							= 18;
+}
+
+
+message LOBBY2DB_ApplyFriend
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_APPLY_FRIEND];
+
+	optional DBFriendInfo			charInfo		= 2;
+	required uint64					dstCharId		= 3;	// 玩家ID
+}
+
+message DB2LOBBY_ApplyFriend
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_APPLY_FRIEND];
+	required uint32			ret			= 2;
+	required uint64			charId		= 3;	// 玩家ID
+}
+
+message LOBBY2DB_AddFriend
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_ADD_FRIEND];
+	required uint64			myCharId		= 2;	// 玩家ID
+	required uint64			dstCharId		= 3;	// 玩家ID
+	optional DBFriendInfo	charInfo		= 4;
+	required bool			bAgree			= 5; 
+}
+
+message DB2LOBBY_AddFriend
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_ADD_FRIEND];
+	required uint32			ret				= 2;
+	required uint64			myCharId		= 3;	// 玩家ID
+	required uint64			dstCharId		= 4;	// 玩家ID
+	required bool			bAgree			= 5; 
+}
+
+
+message LOBBY2DB_DelFriend
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_DEL_FRIEND];
+	required uint64			myCharId		= 2;	// 玩家ID
+	required uint64			dstCharId		= 3;	// 玩家ID
+}
+
+message DB2LOBBY_DelFriend
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_DEL_FRIEND];
+	required uint32			ret			= 2;
+	required uint64			myCharId		= 3;	// 玩家ID
+	required uint64			dstCharId		= 4;	// 玩家ID
+}
+message LOBBY2DB_SendEnergy
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_SENDENERGY];
+	
+	required uint64			dstCharId		= 2;	// 玩家ID
+	required uint64			myCharId		= 3;	// 玩家ID
+}
+message LOBBY2DB_PurchaseInfo
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_PURCHASEINFO];
+	
+	required uint64			myCharId			= 2;		
+	required uint32			goodsId				= 3;
+	required uint32			goodsQuantity		= 4;
+	required uint32			value				= 5;
+	required uint32			diamondPaidUse		= 6;
+	required uint32			time				= 7;
+}
+message DB2LOBBY_Shop
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_SHOP];
+	repeated ShopInfo shopItem					= 2;
+}
+
+message LOBBY2DB_GetTargetFriendInfo
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_GET_TARGET_FRIENDINFO];
+	required uint64			myCharId		= 2;	// 玩家ID
+	required uint64			dstCharId		= 3;	// 玩家ID
+}
+
+message DB2LOBBY_GetTargetFriendInfo
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GET_TARGET_FRIENDINFO_RET];
+	required uint32		ret						= 2;
+	required uint64		charid					= 3;
+	required bool 		bfriend	 				= 4;
+	required bool 		black	 				= 5;
+	required bool 		apply	 				= 6;
+}
+
+message LOBBY2DBGetTargetUserinfoReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_GET_TARGET_USERINFO_REQ];
+	required uint32			cmd				= 2;	// 请求绑定的操作	
+	required uint64			myCharId		= 3;	// 玩家ID
+	required uint64			dstCharId		= 4;	// 玩家ID
+}
+
+message DB2LOBBYGetTargetUserinfoRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GET_TARGET_USERINFO_RET];
+	required uint32		ret						= 2;
+	required uint32		cmd						= 3;
+	required uint64		myCharId				= 4;
+	required uint64		dstCharId				= 5;
+	optional OtherUserInfo		other			= 6;
+}
+
+message LOBBY2DBGetRecommandFriendReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_GET_RECOMMAND_FRIEND_REQ];
+	required uint64			charId			= 2;	// 玩家ID
+	required uint64			level			= 3;	// 玩家ID
+}
+
+message DB2LOBBYGetRecommandFriendRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GET_RECOMMAND_FRIEND_RET];
+	required uint64				charId			= 2;	// 玩家ID
+	repeated ClientFriendInfo recommandList	 	= 3;
+	repeated ClientFriendInfo recommandBigList	 = 4; 	// 防止第一个集合没有
+}
+
+message DbActivity
+{
+  required uint32		id					= 1;
+  optional uint32		closed				= 2;
+  optional uint32		opentype			= 3;
+  optional uint32		actype				= 4;
+  optional uint32		showBeginTime		= 5;
+  optional uint32		showEndTime			= 6;
+  optional uint32		beginTime			= 7;
+  optional uint32		endTime				= 8;
+  optional uint32		playerLev			= 9;
+  optional bytes		todayTimes			= 10;
+  optional bytes		values				= 11;
+  optional bytes		rewards				= 12;
+  optional bytes		name				= 13;
+  optional bytes		desc				= 14;
+  optional bytes		childDesc			= 15;
+  optional bytes		values2				= 16;
+  optional uint32		activetime			= 17;
+  optional uint32		countdown			= 18;
+}
+message LOBBY2DB_LoadActivityReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOADACTIVITYREQ];
+}
+
+message DB2LOBBY_LoadActivityRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOADACTIVITYRET];
+	repeated DbActivity items					= 2;
+}
+
+message LOBBY2DB_UpdateActivityReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATEACTIVITYREQ];
+	required uint32		type					= 2; //1:insert 2:update
+	repeated DbActivity item					= 3;
+}
+message DbRank
+{
+  required uint32    type          = 1;
+  required uint64    charid        = 3;
+  required uint64    value         = 4;
+  optional uint32    templateId    = 5;
+  optional uint64    instanceId    = 6;
+  optional uint32    instanceValue = 7;
+
+}
+message LOBBY2DB_LoadRankReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOADRANKREQ];
+}
+
+message DB2LOBBY_LoadRankRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOADRANKRET];
+	repeated DbRank items	     				= 2;
+	optional int32  ret                         = 3;
+}
+
+message LOBBY2DB_UpdateRankReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATERANKREQ];
+	repeated DbRank item					    = 2;
+}
+message LOBBY2DB_ClearRankReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_CLEARRANKREQ];
+	required uint32    type          = 2;
+}
+message LOBBY2DB_ClearPlayerRank_Req
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_CLEARPLAYERRANK_REQ];
+	required uint64 	charid 		= 2;
+}
+message DbArena
+{
+  required uint32    rank          = 1;
+  required uint64    charid        = 2;
+  required uint32    bestrank      = 3;
+  required uint32    top3time      = 4;
+  required uint64    winnum        = 5;
+  required string    enemysrank    = 6;
+
+}
+message LOBBY2DB_LoadArenaReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOADARENAREQ];
+}
+
+message DB2LOBBY_LoadArenaRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOADARENARET];
+	repeated DbArena items	     				= 2;
+	optional int32  ret                         = 3;
+}
+
+message LOBBY2DB_UpdateArenaReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATEARENAREQ];
+	repeated DbArena item					    = 2;
+}
+
+// 	合服比拼
+message DBServerCompare
+{
+	required uint32 	rank = 1;
+	required ServerCompareType type = 2;
+	required uint64 	charid = 3;
+	required uint64 	value = 4;
+}
+
+message LOBBY2DB_LoadServerCompare_Req
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_LOADSERVERCOMPARE_REQ];
+}
+
+message DB2LOBBY_LoadServerCompare_Ret
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = DB2LOBBY_LOADSERVERCOMPARE_RET];
+	required uint32 			ret 			= 2;
+	repeated DBServerCompare 	compare_info 	= 3;
+}
+
+message LOBBY2DB_UpdateServerCompare_Req
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_UPDATESERVERCOMPARE_REQ];
+	repeated DBServerCompare    compare_info    = 2;
+}
+
+message LOBBY2DB_ClearServerCompare_Req
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_CLEARSERVERCOMPARE_REQ];
+	required ServerCompareType 		type 		= 2;
+}
+
+/////////////////////////////////////////////guild//////////////////////////////////////
+message DBGuildPlayer
+{
+  required uint64    charid        = 1;
+  required uint32    guildid       = 2;
+  required uint32    job           = 3;
+  required uint32    jointime      = 4;
+  optional uint32    ritual        = 5;
+  optional uint32    days          = 6;
+  optional uint32    rewardgot     = 7;
+  optional uint32    ritualtime    = 8;
+  optional uint32    ratereward    = 9;
+  optional bytes     territory     = 10;
+  optional string    skill_level   = 11;
+}
+message DBGuildApply
+{
+  required uint64    charid        = 1;
+  repeated uint32    guildid       = 2;
+}
+message DBGuildInfo
+{
+	required GuildInfo info      = 1;
+	optional bytes     guild_map = 2;           //2.1.0版本废弃
+	optional uint32    passed_chapterid = 3;    //2.1.0版本废弃
+	optional GuildChapterInfo  chapter   = 4;
+}
+
+message LOBBY2DB_LoadGuild_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOADGUILD_REQ];
+}
+message DB2LOBBY_GuildInfo_Ret
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GUILDINFO_RET];
+	repeated DBGuildInfo item                   = 2; 
+	optional int32  ret                         = 3;
+}
+message DB2LOBBY_GuildPlayers_Ret
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GUILDPlAYERS_RET];
+	repeated DBGuildPlayer item                 = 2;
+	optional int32  ret                         = 3;
+}
+message DB2LOBBY_GuildApplys_Ret
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_GUILDAPPLYS_RET];
+	repeated DBGuildApply item                  = 2;
+	optional int32  ret                         = 3;
+}
+message LOBBY2DB_UpdateGuildInfo_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATEGUILDINFO_REQ];
+	required uint32    type                     = 2;	
+	required uint32    guild_id                 = 3;
+	optional GuildInfo item                     = 4;
+	optional bytes     guild_map                = 5; //2.1.0版本废弃
+	optional uint32    passed_chapterid         = 6; //2.1.0版本废弃
+	optional GuildChapterInfo  chapter          = 7;
+}
+message LOBBY2DB_UpdateGuildPlayer_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATEGUILDPLAYER_REQ];
+	repeated DBGuildPlayer item                 = 2;
+	optional bytes     territory                = 3;
+	optional uint64    territory_charid         = 4;
+}
+message LOBBY2DB_UpdateGuildApply_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATEGUILDAPPLY_REQ];
+	repeated DBGuildApply item                  = 2;
+}
+message LOBBY2DB_UpdateGuildRitual_Req
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_UPDATEGUILDRITUAL_REQ];
+	required uint32       guildid               = 2; //0表示所有guild
+	required uint32       rate                  = 3;
+}
+message LOBBY2DB_UpdateGuildNewDay_Req
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_UPDATEGUILDNEWDAY_REQ];
+}
+message LOBBY2DBLoadTreasureReq
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = LOBBY2DB_LOAD_TREASURE_REQ];
+	required uint32					level		= 2;
+}
+message DB2LOBBYLoadTreasureRet
+{
+	optional TgsProtocol.PacketDef cmdId        = 1 [default = DB2LOBBY_LOAD_TREASURE_RET];
+	repeated DbTreasureInfo player				= 2;
+	optional uint32      ret                    = 3;
+}
+message LOBBY2DBLoadRobotReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_LOAD_ROBOT_REQ];
+
+	required uint64 CharId					= 2;
+}
+message DB2LOBBYLoadRobotRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_LOAD_ROBOT_RET];
+
+	required uint32			ret						= 2;
+	required uint64			charId					= 3;
+	required DB2LOBBY_LoadCharRet charInfo			= 4;
+	required uint32			index					= 5;
+	required uint64			ownerId					= 6;
+	required uint32			growupIndex				= 7;
+}
+message LOBBY2DBCreateRobotReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_CREATE_ROBOT_REQ];
+
+	required uint64 		charid					= 2;
+	required string			charName				= 3;
+	required uint32			index					= 4;
+	required uint64			ownerId					= 5;	// 拥有者charid， 全局机器人为0
+}
+message DB2LOBBYCreateRobotRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_CREATE_ROBOT_RET];
+
+	required uint32			ret						= 2;
+	required uint64			charid					= 3;
+	required uint32			index					= 4;
+	required uint64			ownerId					= 5;	// 拥有者charid， 全局机器人为0
+}
+message LOBBY2DBSaveRobotReq
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = LOBBY2DB_SAVE_ROBOT_REQ];
+
+	required uint64 CharId					= 2;
+	required LOBBY2DB_SaveCharReq charInfo			= 3;
+	required uint32			index					= 4;
+	required uint64			ownerId					= 5;
+	required uint32			growupIndex				= 6;
+}
+message DB2LOBBYSaveRobotRet
+{
+	optional TgsProtocol.PacketDef cmdId		= 1 [default = DB2LOBBY_SAVE_ROBOT_RET];
+
+	required uint32			ret						= 2;
+	required uint64			charId					= 3;
+}
