@@ -29,6 +29,7 @@ class CCsvReader
 		bool Init(std::string content);
 		bool InitByFile(std::string path);
 		std::string GetCell(int line, int row);
+		std::vector<std::string>* GetLine(int line);
 		std::string GetErrorStr();
 		int GetLineCount();
 		int GetRowCount(); // first line 's row number

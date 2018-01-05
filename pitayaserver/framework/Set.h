@@ -29,5 +29,6 @@ public:
 	static uint32_t ExecutionTimeInterval;      /* program exec time interval default 20ms*/
 	static uint32_t MaxPacketOverLoad;          /* recv queue allow max packet number default 50*/
 	static const char *ScriptMainFile;          /* script init file */
+	static uint8_t ClientIOThreadRun;        /* IO thread containing db run yes(1) or no(0) default yes */
 };
 #endif

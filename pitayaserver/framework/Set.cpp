@@ -29,4 +29,5 @@ const char *CSet::ScriptMainFile = "main.js";
 #else
 const char *CSet::ScriptMainFile = "";
 #endif
+uint8_t CSet::ClientIOThreadRun = 0;
 

@@ -10,12 +10,12 @@
 
 void DatabaseMysql::ThreadStart()
 {
-    //mysql_thread_init();
+	mysql_thread_init();
 }
 
 void DatabaseMysql::ThreadEnd()
 {
-    //mysql_thread_end();
+	mysql_thread_end();
 }
 
 size_t DatabaseMysql::db_count = 0;

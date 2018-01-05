@@ -5,6 +5,7 @@
 #include <string>
 #include "Util.h"
 #include <stdlib.h>
+#include <sstream>
 
 namespace CenterDB
 {
@@ -21,8 +22,8 @@ std::map<uint32, GmCommand*> CenterDBCtrl::m_mapGmCommandAll;
 bool CenterDBCtrl::ExistsIndex( const char* table, const char* index )
 {
 	QueryResult* result = m_db->PQuery(
-		"select * from information_schema.statistics where table_name='%s' and index_name='%s'",
-		table, index
+		"select * from information_schema.statistics where table_schema='%s' and table_name='%s' and index_name='%s'",
+		m_db->GetDbName(), table, index
 	);
 
 	if ( result )
@@ -36,8 +37,8 @@ bool CenterDBCtrl::ExistsIndex( const char* table, const char* index )
 bool CenterDBCtrl::ExistsColumn( const char* table, const char* column )
 {
 	QueryResult* result = m_db->PQuery(
-		"select * from information_schema.columns where table_name='%s' and column_name='%s' and table_schema='%s'",
-		table, column, m_db->GetDbName() );
+		"select * from information_schema.columns where table_schema='%s' and table_name='%s' and column_name='%s'",
+		m_db->GetDbName(), table, column );
 	if ( result )
 	{
 		delete result;
@@ -60,16 +61,31 @@ bool CenterDBCtrl::ExistsTable( const char* table )
 	return false;
 }
 
-uint32 CenterDBCtrl::NextRoleId()
+bool CenterDBCtrl::ExistsServer( uint32 dwServerId )
 {
-	++m_maxRoleAutoInc;
-	return ( m_maxRoleAutoInc << 8 ) | ( (uint32)m_byLoginServerId << 1 ); // | 0  [lowest bit reserved for robot]
+    QueryResult* result = m_db->PQuery(
+            "select 1 from gameserver_info where server_id=%u", dwServerId
+            );
+    if ( result )
+    {
+        delete result;
+        return true;
+    }
+    return false;
 }
 
-uint64 CenterDBCtrl::NextPassportId( uint16 wPlatformId )
+uint32 CenterDBCtrl::NextRoleId()
 {
+	// 28 bit Inc + 3 bit LoginServerId + 1 bit RobotFlag
+	++m_maxRoleAutoInc;
+	return ( m_maxRoleAutoInc << 4 ) | ( (uint32)m_byLoginServerId << 1 ); // | 0  [lowest bit reserved for robot]
+}
+
+uint64 CenterDBCtrl::NextPassportId( uint32 dwPlatformId )
+{
+	// 32 bit Inc + 3 bit LoginServerId + 29 bit PlatformId
 	++m_maxPassportAutoInc;
-	return ( ((uint64)m_maxPassportAutoInc) << 32 ) | ( ((uint64)m_byLoginServerId) << 24 ) | ( ((uint64)wPlatformId) << 8 );
+	return ( ((uint64)m_maxPassportAutoInc) << 32 ) | ( ((uint64)m_byLoginServerId) << 29 ) | ( ((uint64)dwPlatformId) );
 }
 
 bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db )
@@ -96,11 +112,120 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 		return false;
 	}
 
+	if ( m_byLoginServerId >= ( 1 << 3 ) )
+	{
+		IME_SYSTEM_ERROR( "InitCenterDB", "Max LoginServerId Is 8" );
+		return false;
+	}
+
 	m_bReadOnly = false;
 	m_db = db;
 	m_byLoginServerId = byLoginServerId;
+	// gift_generate_record
+	m_db->DirectExecute(
+		"CREATE TABLE IF NOT EXISTS gift_generate_record ("
+			"id				INT			UNSIGNED	NOT NULL,"
+			"idx			INT			UNSIGNED	NOT NULL,"
+			"gen_start		INT			UNSIGNED	NOT NULL,"
+			"gen_end		INT			UNSIGNED	NOT NULL,"
+			"gen_use		VARCHAR(512) CHARACTER SET utf8 NOT NULL DEFAULT '',"
+			"create_time	INT			UNSIGNED	NOT NULL,"
+			"creator		VARCHAR(32)	CHARACTER SET utf8 NOT NULL DEFAULT '',"
+			"PRIMARY KEY(id, idx)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+
+	// gift_generate_record_backup
+	m_db->DirectExecute(
+		"CREATE TABLE IF NOT EXISTS gift_generate_record_backup ("
+			"id				INT			UNSIGNED	NOT NULL,"
+			"idx			INT			UNSIGNED	NOT NULL,"
+			"gen_start		INT			UNSIGNED	NOT NULL,"
+			"gen_end		INT			UNSIGNED	NOT NULL,"
+			"gen_use		VARCHAR(512) CHARACTER SET utf8 NOT NULL DEFAULT '',"
+			"create_time	INT			UNSIGNED	NOT NULL,"
+			"creator		VARCHAR(32)	CHARACTER SET utf8 NOT NULL DEFAULT '',"
+			"backup_time	INT			UNSIGNED	NOT NULL,"
+			"PRIMARY KEY(id, idx)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+
+
+	m_db->PExecute(
+		"CREATE TABLE IF NOT EXISTS login_strategy_backup ("
+			"idx 			INT		UNSIGNED	NOT NULL	AUTO_INCREMENT,"
+			"auto_id		INT		UNSIGNED	NOT NULL	DEFAULT '0',"
+			"strategy_id	INT 	UNSIGNED	NOT NULL,"
+			"condition_id	TINYINT	UNSIGNED	NOT NULL,"
+			"type			TINYINT	UNSIGNED	NOT NULL,"
+			"value			VARCHAR(64)	CHARACTER SET utf8 DEFAULT NULL COMMENT '记录创建人',"
+			"creator		VARCHAR(32) CHARACTER SET utf8 DEFAULT NULL COMMENT '备注',"
+			"remark 		VARCHAR(100) DEFAULT NULL COMMENT '备注',"
+			"backup_time	INT		UNSIGNED	NOT NULL	DEFAULT '0'	COMMENT '备份时间',"
+			"is_not 		TINYINT UNSIGNED	NOT NULL DEFAULT '0',"
+			"PRIMARY KEY(idx)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+	// logindevicelevel_info
+	m_db->PExecute(
+		"CREATE TABLE IF NOT EXISTS logindevicelevel_info ("
+			"summarydate	DATE					NOT	NULL COMMENT '统计日期',"
+			"server_id		INT			UNSIGNED	NOT	NULL COMMENT '分区',"
+			"platform		INT			UNSIGNED	NOT	NULL COMMENT '用户平台',"
+			"uid			VARCHAR(128) CHARACTER SET utf8 DEFAULT NULL COMMENT '设备号',"
+			"passport_id	BIGINT		UNSIGNED	NOT	NULL COMMENT '用户ID',"
+			"role_id		INT			UNSIGNED	NOT	NULL COMMENT '角色ID',"
+			"level			INT			UNSIGNED	NOT	NULL COMMENT '角色等级',"
+			"vip_level		INT			UNSIGNED	NOT	NULL COMMENT 'vip等级',"
+			"vip_exp		INT			UNSIGNED	NOT	NULL COMMENT 'vip总经验',"
+			"reg_device		VARCHAR(32)	CHARACTER SET utf8 DEFAULT NULL COMMENT '设备',"
+			"player_icon	INT			UNSIGNED	NOT	NULL COMMENT '职业',"
+			"role_last_login_time	INT	UNSIGNED	NOT	NULL COMMENT '角色最后登录时间',"
+			"morrowloginflag	INT		UNSIGNED	NOT	NULL COMMENT '是否次日登录',"
+			"create_time	INT			UNSIGNED	NOT	NULL COMMENT '用户创建时间',"
+			"role_create_time	INT		UNSIGNED	NOT	NULL COMMENT '角色创建时间',"
+			"PRIMARY KEY (summarydate,server_id,platform,uid,role_id,passport_id)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
 
 	// gameserver_info
+	m_db->PExecute(
+			"CREATE TABLE IF NOT EXISTS relayserver_info ("
+				"relay_type		 TINYINT		UNSIGNED	NOT NULL,"
+				"relay_group	 INT			UNSIGNED	NOT NULL,"//废弃
+				"server_id		 SMALLINT		UNSIGNED	NOT NULL,"
+				"update_time	 INT			UNSIGNED	NOT NULL,"
+				"merge_group	 TINYINT		UNSIGNED	NOT NULL,"//0：没有进行过合服，	X：该组已被并入X组
+				"PRIMARY KEY (relay_type,relay_group)"
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+	m_db->PExecute(
+			"CREATE TABLE IF NOT EXISTS battleserver_info ("
+				"relay_id		INT			UNSIGNED	NOT NULL,"
+				"connect_num	INT			UNSIGNED	NOT NULL,"
+				"running_battle	INT			UNSIGNED	NOT NULL,"
+				"player_num		INT			UNSIGNED	NOT NULL,"
+				"PRIMARY KEY (relay_id)"
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+	if ( !ExistsColumn( "battleserver_info", "player_num" ) )
+	        m_db->PExecute( "ALTER TABLE battleserver_info ADD COLUMN player_num INT UNSIGNED    NOT NULL" );
+
+	m_db->PExecute(
+			"CREATE TABLE IF NOT EXISTS battleserver_list ("
+//				"auto_id 			INT			UNSIGNED	NOT NULL	AUTO_INCREMENT,"
+				"relay_id			INT			UNSIGNED	NOT NULL,"
+				"server_ip			VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
+				"server_port		INT			UNSIGNED	NOT NULL,"
+				"battle_id			VARCHAR(128)CHARACTER SET utf8 NOT NULL,"
+				"last_update_time	INT			UNSIGNED	NOT NULL,"
+				"player_num			INT			UNSIGNED	NOT NULL,"
+				"PRIMARY KEY (server_ip,server_port)"
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+	if ( !ExistsColumn( "battleserver_list", "player_num" ) )
+	        m_db->PExecute( "ALTER TABLE battleserver_list ADD COLUMN player_num INT UNSIGNED    NOT NULL" );
+
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS gameserver_info ("
 			"server_id		SMALLINT	UNSIGNED	NOT NULL,"
@@ -109,8 +234,8 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"local_ip		VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
 			"port			SMALLINT	UNSIGNED	NOT NULL,"
 			"version		VARCHAR(20)	CHARACTER SET utf8 NOT NULL,"
-			"res_version	VARCHAR(20)	CHARACTER SET utf8 NOT NULL,"
-			"res_version_config VARCHAR(20) CHARACTER SET utf8 NOT NULL,"
+			"res_version	VARCHAR(200) CHARACTER SET utf8 NOT NULL,"
+			"res_version_config VARCHAR(200) CHARACTER SET utf8 NOT NULL,"
 			"res_server_ip	VARCHAR(64) CHARACTER SET utf8 NOT NULL,"
 			"online_num		MEDIUMINT	UNSIGNED	NOT NULL,"
 			"can_login		TINYINT		UNSIGNED	NOT NULL,"
@@ -118,30 +243,19 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"update_time	INT			UNSIGNED	NOT NULL,"
 			"login_strategy_id	INT		UNSIGNED	NOT NULL,"
 			"is_test		TINYINT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"version_code	INT			UNSIGNED	NOT NULL DEFAULT '0',"
-			"merge_times	TINYINT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"last_merge_time	INT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"center_port    INT     UNSIGNED    NOT NULL DEFAULT '0',"
+			"activate_req	TINYINT		UNSIGNED	NOT NULL,"	// 0 ~ 255
+	        "server_identify TINYINT    UNSIGNED    NOT NULL,"
+	        "db_name        VARCHAR(32) CHARACTER SET utf8 NOT NULL,"       // server_version
 			"PRIMARY KEY (server_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
+    if ( !ExistsColumn( "gameserver_info", "server_identify" ) )
+        m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN server_identify TINYINT UNSIGNED NOT NULL" );
+	if ( !ExistsColumn( "gameserver_info", "activate_req" ) )
+		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN activate_req TINYINT UNSIGNED	NOT NULL" );
+	if ( !ExistsColumn( "gameserver_info", "db_name" ) )
+	        m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN db_name VARCHAR(20) CHARACTER SET utf8 NOT NULL" );
 
-	if ( !ExistsColumn( "gameserver_info", "res_server_ip" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN res_server_ip VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "gameserver_info", "res_version_config" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN res_version_config VARCHAR(20)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "gameserver_info", "is_test" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN is_test TINYINT		UNSIGNED	NOT NULL DEFAULT '0'" );
-	if ( !ExistsColumn( "gameserver_info", "version_code" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN version_code INT	UNSIGNED	NOT NULL DEFAULT '0'" );
-	if ( !ExistsColumn( "gameserver_info", "can_register" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN can_register INT	UNSIGNED	NOT NULL DEFAULT '1'" );
-	if ( !ExistsColumn( "gameserver_info", "merge_times" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN merge_times TINYINT	UNSIGNED	NOT NULL DEFAULT '0'" );
-	if ( !ExistsColumn( "gameserver_info", "last_merge_time" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN last_merge_time INT	UNSIGNED	NOT NULL DEFAULT '0'" );
-	if ( !ExistsColumn( "gameserver_info", "center_port" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_info ADD COLUMN center_port INT	UNSIGNED	NOT NULL DEFAULT '0'" );
 	// player_info
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS player_info ("
@@ -161,38 +275,13 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"energy			INT			UNSIGNED	NOT NULL,"
 			"quest			INT			UNSIGNED	NOT NULL,"
 			"last_login_time	INT		UNSIGNED	NOT NULL,"
-			"diamond_pay	INT			UNSIGNED	NOT NULL,"
+			"create_time	INT			UNSIGNED	NOT NULL DEFAULT '0',"
+			"diamond_pay	INT			UNSIGNED	NOT NULL DEFAULT '0',"
 			"PRIMARY KEY (role_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
-
-	if ( !ExistsColumn( "player_info", "progress" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN progress INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "level" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN level INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "gold" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN gold INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "diamond" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN diamond INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "cur_stage" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN cur_stage INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "cur_train" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN cur_train INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "vip_level" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN vip_level INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "vip_exp" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN vip_exp INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "last_login_time" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN last_login_time INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "stamina" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN stamina INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "energy" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN energy INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "quest" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN quest INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "player_info", "diamond_pay" ) )
-		m_db->PExecute( "ALTER TABLE player_info ADD COLUMN diamond_pay INT UNSIGNED NOT NULL" );
-
+	if ( !ExistsColumn( "player_info", "create_time" ) )
+	        m_db->PExecute( "ALTER TABLE player_info ADD COLUMN create_time INT UNSIGNED    NOT NULL DEFAULT '0'" );
 	// passport_info
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS passport_info ("
@@ -202,7 +291,7 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"mail			VARCHAR(64) CHARACTER SET utf8 NOT NULL,"
 			"uid			VARCHAR(128) CHARACTER SET utf8 NOT NULL,"
 			"token			VARCHAR(128) CHARACTER SET utf8 NOT NULL,"
-			"platform		MEDIUMINT	UNSIGNED	NOT NULL,"
+			"platform		INT			UNSIGNED	NOT NULL,"
 			"auth_type		TINYINT		UNSIGNED	NOT NULL,"
 			"create_time	INT			UNSIGNED	NOT NULL,"
 			"gm_auth		TINYINT		UNSIGNED	NOT NULL,"
@@ -215,35 +304,15 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"apple_udid		VARCHAR(128)	CHARACTER SET utf8 NOT NULL DEFAULT '',"
 			"token_ip		VARCHAR(32)	CHARACTER SET utf8 NOT NULL,"
 			"token_time		INT	UNSIGNED	NOT NULL,"
-			"IP_COUNTRY             VARCHAR(2) CHARACTER SET utf8 DEFAULT NULL,"
+	        "cdk_status     TINYINT     UNSIGNED    NOT NULL,"
+	        "shadow_login   TINYINT     UNSIGNED    NOT NULL,"
 			"PRIMARY KEY (passport_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
-
-	if ( !ExistsIndex( "passport_info", "index_passport" ) )
-		m_db->PExecute( "CREATE INDEX index_passport ON passport_info(passport)" );
-	if ( !ExistsColumn( "passport_info", "last_login_time" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN last_login_time INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "passport_info", "last_login_server" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN last_login_server SMALLINT	UNSIGNED	NOT NULL DEFAULT '0'" );
-	m_db->PExecute( "ALTER TABLE passport_info CHANGE platform platform MEDIUMINT	UNSIGNED	NOT NULL" );
-
-	if ( !ExistsColumn( "passport_info", "open_udid" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN open_udid VARCHAR(128)	CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsColumn( "passport_info", "apple_udid" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN apple_udid VARCHAR(128)	CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsIndex( "passport_info", "index_open_udid" ) )
-		m_db->PExecute( "CREATE INDEX index_open_udid ON passport_info(open_udid)" );
-	if ( !ExistsIndex( "passport_info", "index_apple_udid" ) )
-		m_db->PExecute( "CREATE INDEX index_apple_udid ON passport_info(apple_udid)" );
-
-	if ( !ExistsColumn( "passport_info", "token_ip" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN token_ip VARCHAR(32) CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsColumn( "passport_info", "token_time" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN token_time INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "passport_info", "IP_COUNTRY" ) )
-		m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN IP_COUNTRY VARCHAR(32) CHARACTER SET utf8 DEFAULT NULL" );
-
+	if ( !ExistsColumn( "passport_info", "shadow_login" ) )
+	        m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN shadow_login TINYINT UNSIGNED    NOT NULL" );
+	if ( !ExistsColumn( "passport_info", "cdk_status" ) )
+	        m_db->PExecute( "ALTER TABLE passport_info ADD COLUMN cdk_status TINYINT UNSIGNED    NOT NULL" );
 	// login_strategy
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS login_strategy ("
@@ -252,11 +321,36 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"condition_id	TINYINT	UNSIGNED	NOT NULL,"
 			"type			TINYINT	UNSIGNED	NOT NULL,"
 			"value			VARCHAR(64) CHARACTER SET utf8 NOT NULL,"
+			"is_not			TINYINT	UNSIGNED	NOT NULL DEFAULT '0',"
 			"PRIMARY KEY(auto_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 	if ( !ExistsColumn( "login_strategy", "is_not" ) )
 		m_db->PExecute( "ALTER TABLE login_strategy ADD COLUMN is_not TINYINT UNSIGNED	NOT NULL DEFAULT '0'" );
+	if ( !ExistsColumn( "login_strategy", "remark" ) )
+		m_db->PExecute( "ALTER TABLE login_strategy ADD COLUMN remark varchar(100) DEFAULT NULL COMMENT '备注'" );
+
+	// login_strategy_backup
+	m_db->PExecute(
+		"CREATE TABLE IF NOT EXISTS login_strategy_backup ("
+			"idx 			INT		UNSIGNED	NOT NULL	AUTO_INCREMENT,"
+			"auto_id		INT		UNSIGNED	NOT NULL	DEFAULT '0',"
+			"strategy_id	INT 	UNSIGNED	NOT NULL,"
+			"condition_id	TINYINT	UNSIGNED	NOT NULL,"
+			"type			TINYINT	UNSIGNED	NOT NULL,"
+			"value			VARCHAR(64)	CHARACTER SET utf8 DEFAULT NULL COMMENT '记录创建人',"
+			"creator		VARCHAR(32) CHARACTER SET utf8 DEFAULT NULL COMMENT '备注',"
+			"remark 		varchar(100) DEFAULT NULL COMMENT '备注',"
+			"backup_time	INT		UNSIGNED	NOT NULL	DEFAULT '0'	COMMENT '备份时间',"
+			"is_not 		TINYINT UNSIGNED	NOT NULL DEFAULT '0',"
+			"PRIMARY KEY(idx)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+
+	if ( !ExistsColumn( "login_strategy_backup", "remark" ) )
+		m_db->PExecute( "ALTER TABLE login_strategy_backup ADD COLUMN remark varchar(100) DEFAULT NULL COMMENT '备注'," );
+	if ( !ExistsColumn( "login_strategy_backup", "is_not" ) )
+		m_db->PExecute( "ALTER TABLE login_strategy_backup ADD COLUMN is_not TINYINT UNSIGNED	NOT NULL DEFAULT '0'" );
 
 	// re_passport_player
 	m_db->PExecute(
@@ -266,23 +360,13 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"server_id		SMALLINT	UNSIGNED	NOT NULL,"
 			"server_id_origin SMALLINT	UNSIGNED	NOT NULL,"
 			"create_time	INT			UNSIGNED	NOT NULL,"
+			"role_level		INT			UNSIGNED	NOT NULL,"
+			"INDEX index_passport (passport_id, server_id_origin),"
 			"PRIMARY KEY (role_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
-
-	if ( !ExistsColumn( "re_passport_player", "create_time" ) )
-		m_db->PExecute( "ALTER TABLE re_passport_player ADD COLUMN create_time INT UNSIGNED NOT NULL" );
-//	if ( !ExistsIndex( "re_passport_player", "index_passport" ) )
-//		m_db->PExecute( "CREATE INDEX index_passport ON re_passport_player(passport_id, server_id)" );
-
-	// for merge
-	if ( !ExistsColumn( "re_passport_player", "server_id_origin" ) )
-	{
-		m_db->PExecute( "ALTER TABLE re_passport_player ADD COLUMN server_id_origin SMALLINT UNSIGNED NOT NULL" );
-		m_db->PExecute( "UPDATE re_passport_player set server_id_origin = server_id" );
-	}
-	if ( !ExistsIndex( "re_passport_player", "index_passport2" ) )
-		m_db->PExecute( "CREATE INDEX index_passport2 ON re_passport_player(passport_id, server_id_origin)" );
+	if ( !ExistsColumn( "re_passport_player", "role_level" ) )
+		m_db->PExecute( "ALTER TABLE re_passport_player ADD COLUMN role_level INT UNSIGNED NOT NULL DEFAULT '0'" );
 
 	// role_login_info
 	m_db->PExecute(
@@ -298,123 +382,6 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
-	// goods_info
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS goods_info ("
-			"server_id		SMALLINT	UNSIGNED	NOT NULL,"
-			"goods_id			INT		UNSIGNED	NOT NULL,"
-			"shop_type			INT		UNSIGNED	NOT NULL,"
-			"buy_type_id		INT		UNSIGNED	NOT NULL,"
-			"buy_content_id		INT		UNSIGNED	NOT NULL,"
-			"buy_count			INT		UNSIGNED	NOT NULL,"
-			"cost_type_id		INT		UNSIGNED	NOT NULL,"
-			"cost_content_id	INT		UNSIGNED	NOT NULL,"
-			"cost_count			INT		UNSIGNED	NOT NULL,"
-			"cost_count_old		INT		UNSIGNED	NOT NULL,"
-			"status			TINYINT		UNSIGNED	NOT NULL,"
-			"limit_day			INT		UNSIGNED	NOT NULL,"
-			"sort_idx			INT		UNSIGNED	NOT NULL,"
-			"icon_id			INT		UNSIGNED	NOT NULL,"
-			"goods_name			VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"description	VARCHAR(256) CHARACTER SET utf8 NOT NULL,"
-			"limit_once			INT		UNSIGNED	NOT NULL,"
-			"limit_time_start	INT		UNSIGNED	NOT NULL,"
-			"limit_time_end		INT		UNSIGNED	NOT NULL,"
-			"vip_show		SMALLINT	UNSIGNED	NOT NULL,"
-			"vip_buy		SMALLINT	UNSIGNED	NOT NULL,"
-			"buy_count_total	INT		UNSIGNED	NOT NULL,"
-			"buy_count_inc		INT		UNSIGNED	NOT NULL,"
-			"platform_goods_id	VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"platform_type	TINYINT		UNSIGNED	NOT NULL,"
-			"weight				INT		UNSIGNED	NOT NULL,"
-			"diamond_pay		INT		UNSIGNED	NOT NULL,"
-			"limit_number	VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"limit_type		INT		UNSIGNED	NOT NULL,"
-			"prize_float		INT		UNSIGNED	NOT NULL,"
-			"is_double		INT		UNSIGNED	NOT NULL,"
-			"buy_ex VARCHAR(2560)	CHARACTER SET utf8 NOT NULL,"
-			"ios_goods_id	VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"android_goods_id	VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"currency		VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"good_gift		INT		UNSIGNED	NOT NULL,"
-			"item_icon		VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"collect_icon		VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
-			"player_level		INT		UNSIGNED	NOT NULL DEFAULT 0,"
-			"recharge_rate		INT		UNSIGNED	NOT NULL DEFAULT 0,"
-			"extra	VARCHAR(256) CHARACTER SET utf8 NOT NULL,"
-			"old_price	VARCHAR(256) CHARACTER SET utf8 NOT NULL,"
-			"PRIMARY KEY (server_id, goods_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-	if ( !ExistsColumn( "goods_info", "cost_count_old" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN cost_count_old INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "limit_once" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN limit_once INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "limit_time_start" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN limit_time_start INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "limit_time_end" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN limit_time_end INT UNSIGNED NOT NULL" );
-
-	if ( !ExistsColumn( "goods_info", "vip_show" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN vip_show		SMALLINT	UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "vip_buy" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN vip_buy		SMALLINT	UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "buy_count_total" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN buy_count_total INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "buy_count_inc" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN buy_count_inc INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "platform_goods_id" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN platform_goods_id VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "platform_type" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN platform_type TINYINT UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "weight" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN weight INT UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "diamond_pay" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN diamond_pay INT		UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "limit_number" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN limit_number varchar(4096) CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "limit_type" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN limit_type  INT		UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "prize_float" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN prize_float VARCHAR(256) CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "is_double" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN is_double TINYINT UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "buy_ex" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN buy_ex VARCHAR(2560)	CHARACTER SET utf8 NOT NULL" );
-
-	if ( !ExistsColumn( "goods_info", "ios_goods_id" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN ios_goods_id	VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "android_goods_id" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN android_goods_id VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "currency" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN currency		VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "good_gift" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN good_gift		INT		UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "item_icon" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN item_icon		VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "collect_icon" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN collect_icon		VARCHAR(64)	CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "player_level" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN player_level  INT UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "recharge_rate" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN recharge_rate  INT UNSIGNED	NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "extra" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN extra  VARCHAR(256) CHARACTER SET utf8 NOT NULL" );
-	if ( !ExistsColumn( "goods_info", "old_price" ) )
-		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN old_price  VARCHAR(256) CHARACTER SET utf8 NOT NULL" );
-
-	
-	// notice_info
-	// Depreciated
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS notice_info ("
-			"auto_id			INT		UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"server_id			INT		UNSIGNED	NOT NULL,"
-			"content	VARCHAR(512)	CHARACTER SET utf8 NOT NULL,"
-			"PRIMARY KEY (auto_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-
 	// notice_info_v2
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS notice_info_v2 ("
@@ -422,31 +389,17 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"use_type			TINYINT		UNSIGNED	NOT NULL,"
 			"condition_type		TINYINT		UNSIGNED	NOT NULL,"
 			"condition_value	MEDIUMINT	UNSIGNED	NOT NULL,"
-			"start_time			INT		UNSIGNED	NOT NULL,"
-			"end_time			INT		UNSIGNED	NOT NULL,"
-			"content			VARCHAR(1024) CHARACTER SET utf8 NOT NULL,"
+			"content		VARCHAR(1024) CHARACTER SET utf8 NOT NULL,"
+			"start_time			INT		UNSIGNED	NOT NULL DEFAULT '0',"
+			"end_time			INT		UNSIGNED	NOT NULL DEFAULT '0',"
 			"PRIMARY KEY (auto_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
 	if ( !ExistsColumn( "notice_info_v2", "start_time" ) )
 		m_db->PExecute( "ALTER TABLE notice_info_v2 ADD COLUMN start_time INT UNSIGNED NOT NULL" );
-
 	if ( !ExistsColumn( "notice_info_v2", "end_time" ) )
 		m_db->PExecute( "ALTER TABLE notice_info_v2 ADD COLUMN end_time	INT	UNSIGNED NOT NULL" );
-
-	// active_info
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS active_info ("
-			"auto_id		INT		UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"server_id		INT		UNSIGNED	NOT NULL,"
-			"type_id	TINYINT		UNSIGNED	NOT NULL,"
-			"param		VARCHAR(256) CHARACTER SET utf8 NOT NULL,"
-			"act_data		longblob,"
-			"gm_cmd_id		INT		UNSIGNED	NOT NULL,"
-			"PRIMARY KEY (auto_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
 
 	// charge_info
 	m_db->PExecute(
@@ -460,7 +413,7 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"virtual_value		INT		UNSIGNED	NOT NULL DEFAULT '0',"
 			"type				INT		UNSIGNED	NOT NULL,"
 			"inner_order_id			VARCHAR(128) CHARACTER SET utf8 NOT NULL,"
-			"platform			MEDIUMINT	UNSIGNED	NOT NULL,"
+			"platform			INT		UNSIGNED	NOT NULL,"
 			"platform_order_id		VARCHAR(128) CHARACTER SET utf8 NOT NULL,"
 			"platform_account_id	VARCHAR(128) CHARACTER SET utf8 NOT NULL,"
 			"platform_payment_type	TINYINT	UNSIGNED	NOT NULL,"
@@ -477,29 +430,14 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"addition3			VARCHAR(128) CHARACTER SET utf8 NOT NULL DEFAULT '',"
 			"addition4			VARCHAR(128) CHARACTER SET utf8 NOT NULL DEFAULT '',"
 			"addition5			VARCHAR(128) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"PRIMARY KEY (auto_id)"
+			"diamond_pay		INT		UNSIGNED	NOT NULL DEFAULT '0',"
+			"PRIMARY KEY (auto_id),"
+			"INDEX index_client_order_id ( client_order_id )"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
-	if ( !ExistsColumn( "charge_info", "payment_device_uid" ) )
-		m_db->PExecute( "ALTER TABLE charge_info ADD COLUMN payment_device_uid VARCHAR(128) CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsColumn( "charge_info", "addition5" ) )
-		m_db->PExecute( "ALTER TABLE charge_info ADD COLUMN addition5 VARCHAR(128) CHARACTER SET utf8 NOT NULL DEFAULT ''" );
 	if ( !ExistsColumn( "charge_info", "diamond_pay" ) )
 		m_db->PExecute( "ALTER TABLE `charge_info` ADD COLUMN `diamond_pay` int(10) unsigned NOT NULL DEFAULT 0 COMMENT '充值付费虚拟货币';");
-
-	// gain_info
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS gain_info ("
-			"auto_id		INT 	UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"role_id		INT		UNSIGNED	NOT NULL,"
-			"source_type	INT		UNSIGNED	NOT NULL,"
-			"source_id		INT		UNSIGNED	NOT NULL,"
-			"value			INT		UNSIGNED	NOT NULL,"
-			"time			INT		UNSIGNED	NOT NULL,"
-			"PRIMARY KEY(auto_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
 
 	// purchase_info (diamond only)
 	m_db->PExecute(
@@ -515,9 +453,6 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
-	if ( !ExistsColumn( "purchase_info", "diamond_paid_use" ) )
-		m_db->PExecute( "ALTER TABLE purchase_info ADD COLUMN diamond_paid_use INT UNSIGNED NOT NULL" );
-
 	// gm_cmd
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS gm_cmd ("
@@ -530,6 +465,7 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"end_time			INT		UNSIGNED	NOT NULL DEFAULT '0',"
 			"backup_value	VARCHAR(128) 	CHARACTER SET utf8 NOT NULL DEFAULT '',"
 			"status			TINYINT		UNSIGNED	NOT NULL DEFAULT '0',"
+			"sortserial		INT(3)		UNSIGNED	NOT NULL DEFAULT '100',"
 			"error_msg		VARCHAR(256)	CHARACTER SET utf8 NOT NULL DEFAULT '',"
 			"create_time		INT		UNSIGNED	NOT NULL DEFAULT '0',"
 			"author			VARCHAR(32) 	CHARACTER SET utf8 NOT NULL DEFAULT '',"
@@ -537,32 +473,51 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
-	if ( !ExistsColumn( "gm_cmd", "author" ) )
-		m_db->PExecute( "ALTER TABLE gm_cmd ADD COLUMN author VARCHAR(32) 	CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsColumn( "gm_cmd", "create_time" ) )
-		m_db->PExecute( "ALTER TABLE gm_cmd ADD COLUMN create_time INT UNSIGNED NOT NULL" );
-	if ( !ExistsColumn( "gm_cmd", "params" ) )
-		m_db->PExecute( "ALTER TABLE gm_cmd ADD COLUMN params TEXT NOT NULL" );
-	if ( !ExistsIndex( "gm_cmd", "index_status" ) )
-		m_db->PExecute( "CREATE INDEX index_status ON gm_cmd(status)" );
+	if ( !ExistsColumn( "gm_cmd", "sortserial" ) )
+	{
+		m_db->PExecute( "ALTER TABLE gm_cmd ADD COLUMN sortserial INT UNSIGNED NOT NULL DEFAULT '100'" );
+	}
+
+	// gameserver_merge_log
+	m_db->PExecute(
+		"CREATE TABLE IF NOT EXISTS gameserver_merge_log ("
+			"auto_id			INT		UNSIGNED 	NOT NULL AUTO_INCREMENT,"
+			"server_id_origin	INT		UNSIGNED	NOT NULL DEFAULT 0,"
+			"server_id_merged	INT		UNSIGNED	NOT NULL DEFAULT 0,"
+			"merge_time			INT		UNSIGNED	NOT NULL DEFAULT 0,"
+			"PRIMARY KEY( auto_id )"
+		")ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
+
+	// player_detail_info
+	m_db->PExecute(
+		"CREATE TABLE IF NOT EXISTS player_detail("
+			"role_id		INT			UNSIGNED	NOT NULL,"
+			"diamond_pay	INT			UNSIGNED	NOT NULL DEFAULT '0',"
+			"last_op		INT			UNSIGNED	NOT NULL DEFAULT '0',"
+			"PRIMARY KEY(role_id)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	);
 
 	// gift_box
 	m_db->PExecute(
 		"CREATE TABLE IF NOT EXISTS gift_box("
 			"id			INT		UNSIGNED	NOT NULL,"
 			"idx		INT		UNSIGNED	NOT NULL,"
-			"role_id	INT		UNSIGNED	NOT NULL,"
-			"PRIMARY KEY(id, idx)"
+	        "role_id    BIGINT  UNSIGNED    NOT NULL,"
+			"use_time	INT		UNSIGNED	NOT NULL,"
+			"PRIMARY KEY(id, idx, role_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
-	// invite_info
+	// gift_box_backup
 	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS invite_info("
-			"role_id	INT		UNSIGNED	NOT NULL,"
-			"level		INT		UNSIGNED	NOT NULL,"
-			"inviter_id	INT		UNSIGNED	NOT NULL,"
-			"PRIMARY KEY(role_id)"
+		"CREATE TABLE IF NOT EXISTS gift_box_backup("
+			"id			INT		UNSIGNED	NOT NULL,"
+			"idx		INT		UNSIGNED	NOT NULL,"
+			"role_id	BIGINT	UNSIGNED	NOT NULL,"
+			"backup_time	INT		UNSIGNED	NOT NULL,"
+			"PRIMARY KEY(id, idx, role_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
@@ -578,49 +533,71 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"dead_time	INT		UNSIGNED	NOT NULL,"
 			"use_max	INT		UNSIGNED	NOT NULL,"
 			"platform	VARCHAR(512) 	CHARACTER SET utf8 NOT NULL DEFAULT '0',"
+			"use_every	INT		UNSIGNED	NOT NULL DEFAULT '1',"
 			"PRIMARY KEY(id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
 
-	if ( !ExistsColumn( "gift_box_config", "platform" ) )
-		m_db->PExecute( "ALTER TABLE gift_box_config ADD COLUMN platform VARCHAR(512)	CHARACTER SET utf8 NOT NULL DEFAULT '0'" );
+	if ( !ExistsColumn( "gift_box_config", "use_every" ) )
+	{
+		m_db->PExecute( "ALTER TABLE gift_box_config ADD COLUMN use_every INT UNSIGNED NOT NULL DEFAULT '1'" );
+	}
 
-	// active_stat
+	// gift_box_config_backup
 	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS active_stat("
-			"auto_id		INT		UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"active_id		INT 	UNSIGNED	NOT NULL,"
-			"active_type	INT		UNSIGNED	NOT NULL,"
-			"role_id		INT		UNSIGNED	NOT NULL,"
-			"reach_idx		INT		UNSIGNED	NOT NULL,"
-			"reach_time		INT		UNSIGNED	NOT NULL,"
-			"PRIMARY KEY(auto_id)"
+		"CREATE TABLE IF NOT EXISTS gift_box_config_backup("
+			"id			INT		UNSIGNED	NOT NULL,"
+			"param1		INT		UNSIGNED	NOT NULL,"
+			"param2		INT		UNSIGNED	NOT NULL,"
+			"param3		INT		UNSIGNED	NOT NULL,"
+			"reward		VARCHAR(512) 	CHARACTER SET utf8 NOT NULL DEFAULT '',"
+			"server		VARCHAR(512) 	CHARACTER SET utf8 NOT NULL DEFAULT '',"
+			"dead_time	INT		UNSIGNED	NOT NULL,"
+			"use_max	INT		UNSIGNED	NOT NULL,"
+			"platform	VARCHAR(512) 	CHARACTER SET utf8 NOT NULL DEFAULT '0',"
+			"backup_time INT	UNSIGNED	NOT NULL,"
+			"use_every	INT		UNSIGNED	NOT NULL DEFAULT '1',"
+			"PRIMARY KEY(id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	);
-
-	// ad_active_info
+	// goods_info
 	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS ad_active_info("
-			"auto_id		INT		UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"device_mac_md5	VARCHAR(128) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"status			TINYINT	UNSIGNED	NOT NULL,"
-			"cp 			VARCHAR(64) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"app_id			VARCHAR(64) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"addition1		VARCHAR(256) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"addition2		VARCHAR(256) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"addition3		VARCHAR(256) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"PRIMARY KEY(auto_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
+		"CREATE TABLE IF NOT EXISTS goods_info ("
+			"server_id		SMALLINT	UNSIGNED	NOT NULL,"
+			"goods_id			INT		UNSIGNED	NOT NULL,"
+			"shop_type			INT		UNSIGNED	NOT NULL,"
+			"buy_type_id		INT		UNSIGNED	NOT NULL,"
+			"buy_content_id		INT		UNSIGNED	NOT NULL,"
+			"buy_count			INT		UNSIGNED	NOT NULL,"
+			"cost_type_id		INT		UNSIGNED	NOT NULL,"
+			"cost_content_id	INT		UNSIGNED	NOT NULL,"
+			"cost_count			INT		UNSIGNED	NOT NULL,"
+			"cost_count_old		INT		UNSIGNED	NOT NULL,"
+			"status			TINYINT		UNSIGNED	NOT NULL,"
+			"limit_day			INT		UNSIGNED	NOT NULL,"
+			"sort_idx			INT		UNSIGNED	NOT NULL,"
+			"icon_id			VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
+			"goods_name			VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
+			"description	VARCHAR(256) CHARACTER SET utf8 NOT NULL,"
+			"platform_goods_id	VARCHAR(64)	CHARACTER SET utf8 NOT NULL,"
+			"platform_type		INT		UNSIGNED	NOT NULL,"
+			"discount			INT		UNSIGNED	NOT NULL,"
+			"role_lv_req		INT		UNSIGNED	NOT NULL,"
+			"bonus_buy_count	INT		UNSIGNED	NOT NULL,"
+			"bonus_limit		INT		UNSIGNED	NOT NULL,"
+			"bonus_reset_type	TINYINT	UNSIGNED	NOT NULL,"
+			"diamond_pay		INT		UNSIGNED	NOT NULL,"
+			"PRIMARY KEY (server_id, goods_id)"
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8;" );
 
-	if ( !ExistsColumn( "ad_active_info", "cp" ) )
-		m_db->PExecute( "ALTER TABLE ad_active_info ADD COLUMN cp VARCHAR(64) CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsColumn( "ad_active_info", "app_id" ) )
-		m_db->PExecute( "ALTER TABLE ad_active_info ADD COLUMN app_id VARCHAR(64) CHARACTER SET utf8 NOT NULL DEFAULT ''" );
-	if ( !ExistsIndex( "ad_active_info", "index_md5" ) )
-		m_db->PExecute( "CREATE UNIQUE INDEX index_md5 ON ad_active_info(device_mac_md5)" );
-	if ( !ExistsIndex( "ad_active_info", "index_status" ) )
-		m_db->PExecute( "CREATE INDEX index_status ON ad_active_info(status)" );
+	if ( !ExistsColumn( "goods_info", "bonus_buy_count" ) )
+		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN bonus_buy_count INT UNSIGNED NOT NULL" );
+	if ( !ExistsColumn( "goods_info", "bonus_limit" ) )
+		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN bonus_limit INT UNSIGNED NOT NULL" );
+	if ( !ExistsColumn( "goods_info", "bonus_reset_type" ) )
+		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN bonus_reset_type TINYINT UNSIGNED NOT NULL" );
+	if ( !ExistsColumn( "goods_info", "diamond_pay" ) )
+		m_db->PExecute( "ALTER TABLE goods_info ADD COLUMN diamond_pay INT UNSIGNED NOT NULL" );
 
 	// guild_reg
 	m_db->PExecute(
@@ -631,202 +608,6 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 			"PRIMARY KEY(guild_id)"
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8 AUTO_INCREMENT=10000;"
 	);
-
-	// player_blob_share
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS player_blob_share ("
-			"role_id		BIGINT(20) UNSIGNED NOT NULL,"
-			"server_id		INT	UNSIGNED NOT NULL DEFAULT 0,"
-			"name			VARCHAR(32)	CHARACTER SET utf8 NOT NULL,"
-			"level			INT UNSIGNED NOT NULL DEFAULT 0,"
-			"cap_hero_id	INT UNSIGNED NOT NULL DEFAULT 0,"
-			"achieve		blob		NULL,"
-			"battle_hero	blob		NULL,"
-			"photo			blob		NULL,"
-			"tech			blob		NULL,"
-			"quest			blob		NULL,"
-			"buff			blob		NULL,"
-			"explore		blob		NULL,"
-			"totem			blob		NULL,"
-			"win_cnt		INT	UNSIGNED NOT NULL DEFAULT 0,"
-			"combat			INT UNSIGNED NOT NULL DEFAULT 0,"
-			"update_time	INT UNSIGNED NOT NULL DEFAULT 0,"
-			"PRIMARY KEY(role_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-
-	if ( !ExistsColumn( "player_blob_share", "totem" ) )
-		m_db->PExecute( "ALTER TABLE player_blob_share ADD COLUMN totem blob	NULL" );
-
-	// player_rank
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS player_rank ("
-			"server_id		INT			UNSIGNED NOT NULL DEFAULT 0,"
-			"rank_type		TINYINT		UNSIGNED NOT NULL DEFAULT 0,"
-			"rank			MEDIUMINT	UNSIGNED NOT NULL DEFAULT 0,"
-			"role_name		VARCHAR(32)	CHARACTER SET utf8 NOT NULL,"
-			"rank_value		INT			UNSIGNED NOT NULL DEFAULT 0,"
-			"PRIMARY KEY( server_id, rank_type, rank )"
-		")ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-
-	// gameserver_merge_log
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS gameserver_merge_log ("
-			"auto_id			INT		UNSIGNED 	NOT NULL AUTO_INCREMENT,"
-			"server_id_origin	INT		UNSIGNED	NOT NULL DEFAULT 0,"
-			"server_id_merged	INT		UNSIGNED	NOT NULL DEFAULT 0,"
-			"merge_time			INT		UNSIGNED	NOT NULL DEFAULT 0,"
-			"PRIMARY KEY( auto_id )"
-		")ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-	if ( !ExistsColumn( "gameserver_merge_log", "merge_type" ) )
-		m_db->PExecute( "ALTER TABLE gameserver_merge_log ADD COLUMN merge_type INT UNSIGNED DEFAULT 0" );
-
-	// player_detail_info
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS player_detail("
-			"role_id		INT			UNSIGNED	NOT NULL,"
-			"diamond_pay	INT			UNSIGNED	NOT NULL DEFAULT '0',"
-			"last_op		INT 		UNSIGNED 	DEFAULT 0,"
-			"totem	 		varchar(1024) CHARACTER SET utf8 NULL,"
-			"jewel			varchar(1024) CHARACTER SET utf8 NULL,"
-			"godskill		varchar(2048) CHARACTER SET utf8 NULL,"
-			"herobag		varchar(2048) CHARACTER SET utf8 NULL,"
-			"equipbag		varchar(4096) CHARACTER SET utf8 NULL,"
-			"gembag			varchar(4096) CHARACTER SET utf8 NULL,"
-			"oper_statistics	varchar(65535) CHARACTER SET utf8 NULL,"
-			"timecard_state		varchar(126) CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"PRIMARY KEY(role_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-
-	if ( !ExistsColumn( "player_detail", "last_op" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN last_op INT UNSIGNED DEFAULT 0" );
-
-	if ( !ExistsColumn( "player_detail", "totem" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN totem varchar(1024) CHARACTER SET utf8 NULL" );
-
-	if ( !ExistsColumn( "player_detail", "godskill" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN godskill varchar(2048) CHARACTER SET utf8 NULL" );
-
-	if ( !ExistsColumn( "player_detail", "jewel" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN jewel varchar(1024) CHARACTER SET utf8 NULL" );
-
-	if ( !ExistsColumn( "player_detail", "herobag" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN herobag varchar(2048) CHARACTER SET utf8 NULL" );
-
-	if ( !ExistsColumn( "player_detail", "equipbag" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN equipbag varchar(4096) CHARACTER SET utf8 NULL" );
-
-	if ( !ExistsColumn( "player_detail", "gembag" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN gembag varchar(4096) CHARACTER SET utf8 NULL" );
-
-	if ( !ExistsColumn( "player_detail", "oper_statistics" ) )
-	{
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN oper_statistics varchar(65535) CHARACTER SET utf8 NULL" );
-		m_db->PExecute( "ALTER TABLE player_detail MODIFY COLUMN oper_statistics varchar(65535) CHARACTER SET utf8 NULL" );
-	}
-
-	if ( !ExistsColumn( "player_detail", "timecard_state" ) )
-		m_db->PExecute( "ALTER TABLE player_detail ADD COLUMN timecard_state varchar(126) CHARACTER SET utf8 NOT NULL DEFAULT '' " );
-
-
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS exchange_record("
-			"auto_id		BIGINT		UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"role_id		INT			UNSIGNED	DEFAULT 0,"
-			"goods_id	 	INT 		UNSIGNED 	DEFAULT 0,"
-			"goods_quantity	INT 		UNSIGNED 	DEFAULT 0,"
-			"value			INT 		UNSIGNED 	DEFAULT 0,"
-			"time			INT 		UNSIGNED 	DEFAULT 0,"
-			"PRIMARY KEY(auto_id)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-
-	m_db->PExecute(
-			"CREATE TABLE IF NOT EXISTS `login_strategy_backup` ("
-			"`idx` int(10) unsigned NOT NULL AUTO_INCREMENT,"
-			"`auto_id` int(10) unsigned NOT NULL DEFAULT '0',"
-			"`strategy_id` int(10) unsigned NOT NULL,"
-			"`condition_id` tinyint(3) unsigned NOT NULL,"
-			"`type` tinyint(3) unsigned NOT NULL,"
-			"`value` varchar(64) NOT NULL,"
-			"`creator` varchar(32) DEFAULT NULL COMMENT '记录创建人',"
-			"`remark` varchar(100) DEFAULT NULL COMMENT '备注',"
-			"`backup_time` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '备份时间',"
-			"PRIMARY KEY (`idx`)"
-			") ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8;"
-	);
-	if ( !ExistsColumn( "login_strategy_backup", "is_not" ) )
-		m_db->PExecute( "ALTER TABLE login_strategy_backup ADD COLUMN is_not TINYINT UNSIGNED	NOT NULL DEFAULT '0'" );
-
-	// cdkey_generate_batch
-	if (!ExistsTable("cdkey_generate_batch"))
-	{
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS cdkey_generate_batch ("
-			"auto_id			INT		UNSIGNED	NOT NULL AUTO_INCREMENT,"
-			"channel			INT 	UNSIGNED 	NOT NULL ,"
-			"start_time			INT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"end_time			INT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"limit_number				INT		UNSIGNED	NOT NULL ,"
-			"batch_content			VARCHAR(256)	CHARACTER SET utf8 NOT NULL DEFAULT '',"
-			"create_time		INT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"author				VARCHAR(32)	NOT NULL DEFAULT '',"
-			"prize				VARCHAR(8192) default '',"
-			"PRIMARY KEY (auto_id), INDEX(channel)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-	}
-
-	// cdkey_list
-	if (!ExistsTable("cdkey_list"))
-	{
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS cdkey_list ("
-			"cdkey				VARCHAR(128)		NOT NULL ,"
-			"batch_id			INT 	UNSIGNED 	NOT NULL ,"
-			"create_time		INT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"create_author				VARCHAR(32)	NOT NULL DEFAULT '',"
-			"get_characterid			VARCHAR(32)	NOT NULL DEFAULT '',"
-			"status			TINYINT		UNSIGNED	NOT NULL DEFAULT '0',"
-			"PRIMARY KEY (cdkey), INDEX(get_characterid)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-	}
-	// activity
-	if (!ExistsTable("activity"))
-	{
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS activity ("
-		"`server_id` int(11) NOT NULL,"
-		"`id` int(11) NOT NULL,"
-		"`type` varchar(64) DEFAULT NULL,"
-		"`name` varchar(512) DEFAULT NULL,"
-		"`begintime` datetime DEFAULT NULL,"
-		"`endtime` datetime DEFAULT NULL,"
-		"`detail` text,"
-		"PRIMARY KEY (`server_id`,`id`)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-	}
-	// share_info
-	if (!ExistsTable("share_info"))
-	{
-	m_db->PExecute(
-		"CREATE TABLE IF NOT EXISTS share_info ("
-		"`id` int(10) unsigned NOT NULL AUTO_INCREMENT,"
-		"`role_id` bigint(20) DEFAULT '0',"
-		"`inviter_id` bigint(20) DEFAULT '0',"
-		"`type` int(11) DEFAULT '0',"
-	    "`istest` tinyint(1) DEFAULT '0',"
-		"`inviter_time` datetime DEFAULT NULL,"
-		"`gift_time` datetime DEFAULT NULL,"
-		"PRIMARY KEY (`id`)"
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	);
-	}
 
 	QueryResult* result = m_db->PQuery(
 		"select MAX(passport_id) from passport_info"
@@ -855,12 +636,11 @@ bool CenterDBCtrl::InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId )
 		return false;
 	}
 	uint32 maxRoleId = result->Fetch()[0].GetUInt32();
-	m_maxRoleAutoInc = (uint32)( maxRoleId >> 8 );
+	m_maxRoleAutoInc = std::max( (uint32)( maxRoleId >> 4 ), (uint32)100000 );
 
 	IME_SYSTEM_LOG( "CenterDBCtrl Init", "maxRoleAutoInc=%u", m_maxRoleAutoInc );
 
 	delete result;
-
 	return true;
 }
 
@@ -895,13 +675,13 @@ bool CenterDBCtrl::ExistsPassport( uint64 dwPassport )
 	return false;
 }
 
-bool CenterDBCtrl::ExistsPassport( std::string strPassport, uint8 byAuthType, uint16 wPlatform )
+bool CenterDBCtrl::ExistsPassport( std::string strPassport, uint8 byAuthType, uint32 dwPlatform)
 {
 	m_db->escape_string( strPassport );
 
 	QueryResult* result = m_db->PQuery(
 		"select passport_id from passport_info where passport='%s' and platform=%u and auth_type=%u",
-		strPassport.c_str(), wPlatform, byAuthType );
+		strPassport.c_str(), dwPlatform, byAuthType );
 
 	if ( result )
 	{
@@ -922,7 +702,20 @@ bool CenterDBCtrl::ExistsRole( uint32 dwRoleId )
 	}
 	return false;
 }
-
+bool CenterDBCtrl::UpdateRelayServerInfo(
+			uint32 dwServerId,
+			uint8  byType,
+			uint32  dwGroup,
+			uint32 dwDBTime)
+{
+	return m_db->PExecute( "insert into relayserver_info "
+			"(relay_type, relay_group, server_id, update_time) "
+			"values(%u,%u,%u,%u) on duplicate key update "
+			"server_id=%u, update_time=%u",
+			byType, dwGroup, dwServerId,  dwDBTime,
+			dwServerId , dwDBTime
+			);
+}
 bool CenterDBCtrl::UpdateGameServerInfo(
 			uint32 			dwServerId,
 			std::string		strServerName,
@@ -932,146 +725,110 @@ bool CenterDBCtrl::UpdateGameServerInfo(
 			std::string 	strResServerAddr,
 			uint32 			dwOnlineNum,
 			std::string 	strVersion,
-			std::string		strResVersionFull,
-			std::string		strResVersionConfig,
+			std::string		strClientVersion,
+			std::string		strResVersion,
 			uint8			byCanLogin,
 			uint8 			byStatus,
 			uint32			dwLoginStrategyId,
-	   		uint32			dwCanRegister,
-			uint8 			dwMergeTimes,
-			uint32 			dwLastMergeTime,
-			uint32 			dwCenterPort	)
+			uint8           byServerIdentify,
+			uint8			byIsTest,
+			std::string     strDbName)
 {
-	QueryResult* result = m_db->PQuery(
-		"select update_time from gameserver_info where server_id=%u",
-		dwServerId
-	);
-
 	m_db->escape_string( strIp );
 	m_db->escape_string( strServerName );
 	m_db->escape_string( strVersion );
-	m_db->escape_string( strResVersionFull );
-	m_db->escape_string( strResVersionConfig );
+	m_db->escape_string( strClientVersion );
+	m_db->escape_string( strResVersion );
 	m_db->escape_string( strLocalIp );
 	m_db->escape_string( strResServerAddr );
+	m_db->escape_string( strDbName );
 
-	if ( result )
+	// Async
+	return m_db->PExecute( "insert into gameserver_info "
+			"(server_id, server_name, ip, local_ip, port, version, res_version, res_version_config, online_num, can_login, status, login_strategy_id, res_server_ip, update_time, server_identify,is_test,db_name) "
+			"values(%u, '%s', '%s', '%s', %u, '%s', '%s', '%s', %u, %u, %u, %u, '%s', %u, %u,%u,'%s') on duplicate key update "
+			"server_name='%s', ip='%s',local_ip='%s', port=%u, version='%s', res_version='%s', res_version_config='%s', "
+			"online_num=%u, can_login=%u, status=%u, login_strategy_id=%u, res_server_ip='%s', update_time=%u, server_identify=%u, is_test=%u, db_name='%s'",
+			dwServerId,
+			strServerName.c_str(), strIp.c_str(), strLocalIp.c_str(), dwPort, strVersion.c_str(), strClientVersion.c_str(), strResVersion.c_str(),
+			dwOnlineNum, byCanLogin, byStatus, dwLoginStrategyId, strResServerAddr.c_str(), GetDBTime(), byServerIdentify,byIsTest, strDbName.c_str(),
+			strServerName.c_str(), strIp.c_str(), strLocalIp.c_str(), dwPort, strVersion.c_str(), strClientVersion.c_str(), strResVersion.c_str(),
+			dwOnlineNum, byCanLogin, byStatus, dwLoginStrategyId, strResServerAddr.c_str(), GetDBTime(), byServerIdentify ,byIsTest, strDbName.c_str());
+}
+//bool CenterDBCtrl::UpdateBattleserverList(BattleServerDetailContainer& vecBattleServer)
+//{
+//    SqlQueryBatch batch;
+//    for(BattleServerDetailContainer::iterator iter = vecBattleServer.begin();iter != vecBattleServer.end();iter++)
+//    {
+//    	char sql[4096];
+//    	snprintf(sql, 4096, "insert into battleserver_list "
+//    			"(relay_id, server_ip,server_port,battle_id,last_update_time,player_num) "
+//    			"values(%u, '%s',%u,'%s',%u,%u) on duplicate key update "
+//    			"relay_id=%u,server_ip='%s',server_port=%u,battle_id='%s',last_update_time=%u,player_num=%u",
+//    			iter->dwRelayServerId,iter->strServerIp.c_str(),iter->dwServerPort,iter->strBattleId.c_str(),iter->dwLastUpdateTime,iter->dwConnectPlayerNum,
+//    			iter->dwRelayServerId,iter->strServerIp.c_str(),iter->dwServerPort,iter->strBattleId.c_str(),iter->dwLastUpdateTime,iter->dwConnectPlayerNum);
+//    	batch.PushQuery(sql);
+////        batch.PushQuery()
+//    }
+//    return batch.ExecuteDirect( m_db );
+////	return true;
+//}
+bool CenterDBCtrl::DelBattleServer(std::string ip,uint32 dwPort)
+{
+	return m_db->PExecute("delete from battleserver_list where server_ip ='%s' and server_port = %u", ip.c_str(),dwPort);
+}
+bool CenterDBCtrl::UpdateBattleserverInfo(uint32 dwRelayId,uint32 dwTotal,uint32 dwRunning,uint32 dwPlayerNum)
+{
+
+//	IME_ERROR("%u %u %u",dwRelayId,dwTotal,dwRunning);
+	return m_db->PExecute( "insert into battleserver_info "
+			"(relay_id, connect_num, running_battle, player_num) "
+			"values(%u, %u,%u,%u) on duplicate key update "
+			"relay_id=%u, connect_num=%u,running_battle=%u,player_num=%u",
+			dwRelayId,dwTotal,dwRunning,dwPlayerNum,
+			dwRelayId,dwTotal,dwRunning,dwPlayerNum);
+
+}
+bool CenterDBCtrl::GetServerMergeLog( std::map<uint32,uint32>& mapMergeTable )
+{
+    QueryResult* result = m_db->PQuery("select server_id_origin,server_id_merged from gameserver_merge_log"    );
+    if ( result )
+    {
+        uint64 cnt = result->GetRowCount();
+        for (unsigned int i = 0; i < cnt; i++ )
+        {
+            Field* field = result->Fetch();
+
+            uint32 origin  = field[0].GetUInt32();
+            uint32 target  = field[1].GetUInt32();
+            mapMergeTable[origin] = target;
+            result->NextRow();
+        }
+        delete result;
+    }
+    return true;
+}
+bool CenterDBCtrl::GetMergedRoleIds(std::map<uint32, uint32>& mapRoleOriginSID, uint32 dwServerId)
+{
+	QueryResult* result = m_db->PQuery("select role_id,server_id_origin from re_passport_info "
+			" where server_id=%u server_id_origin!=server_id", dwServerId);
+	if (result)
 	{
+		uint64 cnt = result->GetRowCount();
+		for (unsigned int i = 0; i < cnt; i++)
+		{
+			Field* field = result->Fetch();
+
+			uint32 dwRoleId			= field[0].GetUInt32();
+			uint32 dwOriginServerId	= field[1].GetUInt32();
+
+			mapRoleOriginSID[dwRoleId] = dwOriginServerId;
+			result->NextRow();
+		}
 		delete result;
-		m_db->PExecute(
-			"update gameserver_info set server_name='%s',ip='%s',local_ip='%s', port=%u, version='%s', res_version='%s', res_version_config='%s', "
-			"online_num=%u, can_login=%u, status=%u, login_strategy_id=%u, res_server_ip='%s', update_time=%u, can_register=%u, merge_times=%u, last_merge_time=%u, center_port=%u where server_id=%u", strServerName.c_str(),
-			strIp.c_str(), strLocalIp.c_str(), dwPort, strVersion.c_str(), strResVersionFull.c_str(), strResVersionConfig.c_str(), dwOnlineNum,
-			byCanLogin, byStatus, dwLoginStrategyId, strResServerAddr.c_str(), GetDBTime(), dwCanRegister, dwMergeTimes, dwLastMergeTime, dwCenterPort, dwServerId
-		);
-	}
-	else
-	{
-		m_db->PExecute(
-			"insert into gameserver_info "
-			"(server_id, server_name, ip, local_ip, port, version, res_version, res_version_config, online_num, can_login, status, login_strategy_id, res_server_ip, update_time, center_port) "
-			"values(%u, '%s', '%s', '%s', %u, '%s', '%s', '%s', %u, %u, %u, %u, '%s', %u, %u)",
-			dwServerId, strServerName.c_str(), strIp.c_str(), strLocalIp.c_str(), dwPort, strVersion.c_str(), strResVersionFull.c_str(), strResVersionConfig.c_str(),
-			dwOnlineNum, byCanLogin, byStatus, dwLoginStrategyId, strResServerAddr.c_str(), GetDBTime(), dwCenterPort
-		);
 	}
 	return true;
 }
-
-bool CenterDBCtrl::UpdateServerVersionCode( uint32 dwGameServerId, uint32 dwServerVersionCode )
-{
-	return m_db->PExecute("update gameserver_info set version_code=%u where server_id=%u", dwServerVersionCode, dwGameServerId );
-}
-
-bool CenterDBCtrl::UpdateServerMergeTimes( uint32 dwGameServerId, uint8 dwMergeTimes)
-{
-	return m_db->PExecute("update gameserver_info set merge_times=%u where server_id=%u", dwMergeTimes, dwGameServerId );
-}
-
-bool CenterDBCtrl::UpdateServerLastMergeTime( uint32 dwGameServerId, uint32 mergetime)
-{
-	return m_db->PExecute("update gameserver_info set last_merge_time=%u where server_id=%u", mergetime, dwGameServerId );
-}
-bool CenterDBCtrl::UpdateCenterPort( uint32 dwCenterPort, uint32 dwGameServerId)
-{
-	return m_db->PExecute("update gameserver_info set center_port=%u where server_id=%u", dwCenterPort, dwGameServerId );
-}
-uint32 CenterDBCtrl::GetCenterPort( uint32 dwGameServerId)
-{
-	QueryResult* result = m_db->PQuery("select center_port from gameserver_info where server_id=%u", dwGameServerId);
-	if (result)
-	{
-		Field* field = result->Fetch();
-		uint32 centerPort = field[0].GetInt32();
-		delete result;
-		return centerPort;
-	}
-	return 0;
-}
-int CenterDBCtrl::GetLoginStrategyId( uint32 dwGameServerId )
-{
-	QueryResult* result = m_db->PQuery("select login_strategy_id from gameserver_info where server_id=%u", dwGameServerId);
-	if (result)
-	{
-		Field* field = result->Fetch();
-		int login_strategy_id = field[0].GetInt32();
-		delete result;
-		return login_strategy_id;
-	}
-	return -1;
-}
-uint32 CenterDBCtrl::GetServerLastMergeTime( uint32 dwGameServerId)
-{
-	QueryResult* result = m_db->PQuery(
-			"select last_merge_time from gameserver_info where server_id=%u", dwGameServerId
-			);
-	if (result)
-	{
-		Field* field = result->Fetch();
-		uint32 dwLastMergeTime = field[0].GetUInt32();
-		delete result;
-		return dwLastMergeTime;
-	}
-	IME_SYSTEM_ERROR( "GetServerLastMergeTime", "last_merge_time Not Found, serverId=%u", dwGameServerId );
-	return 0;
-}
-uint8 CenterDBCtrl::GetServerMergeTimes( uint32 dwGameServerId)
-{
-	QueryResult* result = m_db->PQuery(
-			"select merge_times from gameserver_info where server_id=%u", dwGameServerId
-			);
-	if (result)
-	{
-		Field* field = result->Fetch();
-		uint32 dwMergeTimes = field[0].GetUInt8();
-		delete result;
-		return dwMergeTimes;
-	}
-	IME_SYSTEM_ERROR( "GetServerMergeTimes", "merge_times Not Found, serverId=%u", dwGameServerId );
-	return 0;
-
-}
-
-uint32 CenterDBCtrl::GetServerVersionCode( uint32 dwGameServerId )
-{
-	QueryResult* result = m_db->PQuery(
-		"select version_code from gameserver_info where server_id=%u", dwGameServerId
-		);
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-
-		uint32 dwServerVersionCode = field[0].GetUInt32();
-
-		delete result;
-		return dwServerVersionCode;
-	}
-
-	IME_SYSTEM_ERROR( "GetServerVersionCode", "ServerVersionCode Not Found, serverId=%u", dwGameServerId );
-	return 0;
-}
-
 uint32 CenterDBCtrl::GetServerIdMerged( uint32 dwServerIdOrigin )
 {
 	uint32 dwId = dwServerIdOrigin;
@@ -1094,33 +851,13 @@ uint32 CenterDBCtrl::GetServerIdMerged( uint32 dwServerIdOrigin )
 	return dwId;
 }
 
-void CenterDBCtrl::GetInfoMerged(uint32 dwServerIdOrigin, uint32& dwMergedServerId, uint32& dwMergedType)
+bool CenterDBCtrl::IsPassportRegistered( std::string strPassport )
 {
-	uint32 dwId = dwServerIdOrigin;
-	uint32 dwType = 0;
-	dwMergedType = dwType;
-
-	while ( true )
-	{
-		QueryResult* result = m_db->PQuery( "select server_id_merged,merge_type from gameserver_merge_log where server_id_origin = %u", dwId );
-
-		if ( result )
-		{
-			Field* field = result->Fetch();
-			dwId = field[0].GetUInt32();
-			dwType = field[1].GetUInt32();
-			if (dwType == 1)
-				dwMergedType = 1;
-			delete result;
-		}
-		else
-		{
-			break;
-		}
-	}
-	dwMergedServerId = dwId;
-//	dwMergedType = dwType;
+    m_db->escape_string( strPassport );
+    QueryResult* result = m_db->PQuery( "select passport from passport_info where passport=%s", strPassport.c_str() );
+    return ( result != NULL );
 }
+
 bool CenterDBCtrl::GetMergedListInfo(std::map<uint32, STC_SERVER_MERGE>& out)
 {
 	QueryResult* result = m_db->PQuery( "SELECT `server_id_origin`,`server_id_merged`,merge_type FROM `gameserver_merge_log`;");
@@ -1181,42 +918,15 @@ uint32 CenterDBCtrl::GetServerIdOriginByRoleId(uint32 roleId)
 LoginResultType CenterDBCtrl::ValidateAuthAccount(
 			std::string 	strPassport,
 			std::string 	strPwd,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			uint64&			odwPassportId )
 {
 	m_db->escape_string( strPassport );
 
 	QueryResult* result = m_db->PQuery(
 		"select passport_id, pwd from passport_info where passport='%s' and platform=%u and auth_type=%u",
-		strPassport.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_ACCOUNT
+		strPassport.c_str(), dwPlatform, E_LOGIN_AUTH_TYPE_ACCOUNT
 	);
-
-//	// WinPhone 中文版923, 至尊版10103,帐号互通
-//	if ( result == NULL && ( 923 == wPlatform ||  10103 == wPlatform) )
-//	{
-//		result = m_db->PQuery(
-//				"select passport_id, pwd from passport_info where passport='%s' and (platform = 923 or platform = 10103) and auth_type=%u",
-//				strPassport.c_str(), E_LOGIN_AUTH_TYPE_ACCOUNT
-//		);
-//	}
-	// 霸王大陆私服渠道号8001-8010,帐号互通
-	if ( result == NULL)
-	{
-		if ((wPlatform >= 8001 &&  wPlatform <= 8010))
-		{
-			result = m_db->PQuery(
-					"select passport_id, pwd from passport_info where passport='%s' and (platform >= 8001 and platform <= 8010) and auth_type=%u",
-					strPassport.c_str(), E_LOGIN_AUTH_TYPE_ACCOUNT
-					);
-		}
-		else if (wPlatform == 1097 || (wPlatform >= 4001 && wPlatform <= 4005))
-		{
-			result = m_db->PQuery(
-					"select passport_id, pwd from passport_info where passport='%s' and (platform = 1097 or (platform >= 4001 and platform <= 4005) ) and auth_type=%u",
-					strPassport.c_str(), E_LOGIN_AUTH_TYPE_ACCOUNT
-					);
-		}
-	}
 
 	if ( result )
 	{
@@ -1245,7 +955,7 @@ LoginResultType CenterDBCtrl::ValidateAuthPlatform(
 			std::string		strPlatformToken,
 			std::string		strUid,
 			std::string 	strDeviceToken,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			std::string		strRegIp,
 			std::string		strRegDevice,
 			std::string		strRegDeviceType,
@@ -1259,39 +969,14 @@ LoginResultType CenterDBCtrl::ValidateAuthPlatform(
 
 	QueryResult* result = m_db->PQuery(
 		"select passport_id from passport_info where passport='%s' and platform=%u and auth_type=%u",
-		strPlatformToken.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_PLATFORM
+		strPlatformToken.c_str(), dwPlatform, E_LOGIN_AUTH_TYPE_PLATFORM
 	);
 
-	// 霸王大陆私服渠道号8001-8010,帐号互通
 	if ( result == NULL)
 	{
-		if ((wPlatform >= 8001 &&  wPlatform <= 8010))
-		{
-			result = m_db->PQuery(
-					"select passport_id,platform from passport_info where passport='%s' and (platform >= 8001 and platform <= 8010) and auth_type=%u",
-					strPlatformToken.c_str(), E_LOGIN_AUTH_TYPE_PLATFORM
-					);
-		}
-		else if (wPlatform == 1097 || (wPlatform >= 4001 && wPlatform <= 4005))
-		{
-			result = m_db->PQuery(
-					"select passport_id,platform from passport_info where passport='%s' and (platform = 1097 or (platform >= 4001 and platform <= 4005)) and auth_type=%u",
-					strPlatformToken.c_str(), E_LOGIN_AUTH_TYPE_PLATFORM
-					);
-		}
-		else if ((wPlatform >= 4030 && wPlatform <= 4040))
-		{
-			result = m_db->PQuery(
-					"select passport_id,platform from passport_info where passport='%s' and (platform >= 4030 and platform <= 4040) and auth_type=%u",
-					strPlatformToken.c_str(), E_LOGIN_AUTH_TYPE_PLATFORM
-					);
-		}
-		int startPlatform[] = {5100, 5120, 5130, 5140, 5150, 5160, 5170, 5180, 5190, 2002, 1155,6100, 1170, 1190
-			,1201,1211,1221,1231,1241,1251,1261,1271,1281,1291,1321,1331,1341,1351,1361,1371,1381,1391,1401,1411
-			,1421,5211,5221,5231,5241,5251,5261,5271,5281,5291,5301};
-		int endPlatform[] = {5110, 5129, 5139, 5149, 5159, 5169, 5179, 5189, 5199, 2011, 1159,6110, 1189, 1199
-			,1210,1220,1230,1240,1250,1260,1270,1280,1290,1300,1330,1340,1350,1360,1370,1380,1390,1400,1410,1420
-			,1430,5220,5230,5240,5250,5260,5270,5280,5290,5300,5310};
+		/*
+		int startPlatform[] = {5100};
+		int endPlatform[] = {5110};
 		int len = GET_ARRAY_LENGTH(startPlatform) > GET_ARRAY_LENGTH(endPlatform) ? GET_ARRAY_LENGTH(endPlatform) : GET_ARRAY_LENGTH(startPlatform);
 		for (int i = 0; i < len; i++)
 		{
@@ -1303,27 +988,13 @@ LoginResultType CenterDBCtrl::ValidateAuthPlatform(
 						);
 				break;
 			}
-		}
+		}*/
 	}
+
 	if ( result )
 	{
 		Field* field = result->Fetch();
 		uint64 dwPassportId = field[0].GetUInt64();
-		if (result->GetFieldCount() >= 2)
-		{
-			uint16 oldPlatform = field[1].GetUInt16();
-			if (oldPlatform != wPlatform)
-			{
-				if (ModifyPlatform(dwPassportId, wPlatform))
-				{
-					IME_LOG("ModifyPlatform, dwPassportId=%lu,oldPlatform=%u, currentPlatform=%u", dwPassportId, oldPlatform, wPlatform);
-				}
-				else
-				{
-					IME_ERROR("ModifyPlatform error, dwPassportId=%lu,oldPlatform=%u, newPlatform=%u", dwPassportId, oldPlatform, wPlatform);
-				}
-			}
-		}
 		delete result;
 
 		odwPassportId = dwPassportId;
@@ -1335,8 +1006,8 @@ LoginResultType CenterDBCtrl::ValidateAuthPlatform(
 		m_db->escape_string( strRegDevice );
 		m_db->escape_string( strRegDeviceType );
 
-		if ( InsertPassportInfo( strPlatformToken, "", "", strUid, strDeviceToken, wPlatform, E_LOGIN_AUTH_TYPE_PLATFORM,
-				GetDBTime(), 0, strRegIp.c_str(), strRegDevice.c_str(), strRegDeviceType.c_str(), strOpenUdid, strAppleUdid, odwPassportId ) )
+		if ( InsertPassportInfo( strPlatformToken, "", "", strUid, strDeviceToken, dwPlatform, E_LOGIN_AUTH_TYPE_PLATFORM,
+				GetDBTime(), 0, strRegIp.c_str(), strRegDevice.c_str(), strRegDeviceType.c_str(), strOpenUdid, strAppleUdid, odwPassportId, E_CDK_STATE_NO_NEED_VERIFY ) )
 		{
 			return E_LOGIN_RESULT_TYPE_OK;
 		}
@@ -1353,22 +1024,24 @@ LoginResultType CenterDBCtrl::ValidateAuthFast(
 		std::string		strAppleUdid,
 		uint8			byIOSVersion,
 		std::string		strDeviceToken,
-		uint16			wPlatform,
+		uint32			dwPlatform,
 		std::string		strRegIp,
 		std::string		strRegDevice,
 		std::string		strRegDeviceType,
-		uint64&			odwPassportId )
+		uint64&			odwPassportId,
+		uint8           byCDKStatus)
 {
 	m_db->escape_string( strUid );
 	m_db->escape_string( strDeviceToken );
 
 	QueryResult* result = NULL;
 
-	if ( byIOSVersion < E_IOS_VERSION_7 )
+//	if ( byIOSVersion < E_IOS_VERSION_7 )
+	if(false)
 	{
 		result = m_db->PQuery(
 			"select passport_id from passport_info where passport='%s' and platform=%u and auth_type=%u",
-			strUid.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_FAST
+			strUid.c_str(), dwPlatform, E_LOGIN_AUTH_TYPE_FAST
 		);
 	}
 	else
@@ -1379,22 +1052,21 @@ LoginResultType CenterDBCtrl::ValidateAuthFast(
 			{
 				result =  m_db->PQuery(
 					"select passport_id from passport_info where open_udid='%s' and platform=%u and auth_type=%u",
-					strOpenUdid.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_FAST
+					strOpenUdid.c_str(), dwPlatform, E_LOGIN_AUTH_TYPE_FAST
 				);
 
 				if ( result ) break;
 			}
 
-			if ( strAppleUdid.length() )
-			{
-
-				result = m_db->PQuery(
-					"select passport_id from passport_info where apple_udid='%s' and platform=%u and auth_type=%u",
-					strAppleUdid.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_FAST
-				);
-
-				if ( result ) break;
-			}
+//			if ( strAppleUdid.length() )
+//			{
+//				result = m_db->PQuery(
+//					"select passport_id from passport_info where apple_udid='%s' and platform=%u and auth_type=%u",
+//					strAppleUdid.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_FAST
+//				);
+//
+//				if ( result ) break;
+//			}
 
 		} while (0);
 	}
@@ -1416,14 +1088,17 @@ LoginResultType CenterDBCtrl::ValidateAuthFast(
 			m_db->PExecute("update passport_info set apple_udid='%s' where passport_id=%llu",
 					strAppleUdid.c_str(), dwPassport );
 		}
+
 		odwPassportId = dwPassport;
+		IME_DEBUG("Fast login success, PassportId=%lu",odwPassportId);
 		return E_LOGIN_RESULT_TYPE_OK;
 	}
 	else
 	{
-		if ( InsertPassportInfo( strUid, "", "", strUid, strDeviceToken, wPlatform, E_LOGIN_AUTH_TYPE_FAST,
-				GetDBTime(), 0, strRegIp, strRegDevice, strRegDeviceType, strOpenUdid, strAppleUdid, odwPassportId ) )
+		if ( InsertPassportInfo( strUid, "", "", strUid, strDeviceToken, dwPlatform, E_LOGIN_AUTH_TYPE_FAST,
+				GetDBTime(), 0, strRegIp, strRegDevice, strRegDeviceType, strOpenUdid, strAppleUdid, odwPassportId, byCDKStatus == 0 ? E_CDK_STATE_NO_NEED_VERIFY : E_CDK_STATE_NOT_VERIFIED ) )
 		{
+			IME_DEBUG("Fast login success, PassportId=%lu",odwPassportId);
 			return E_LOGIN_RESULT_TYPE_OK;
 		}
 		else
@@ -1431,6 +1106,15 @@ LoginResultType CenterDBCtrl::ValidateAuthFast(
 			return E_LOGIN_RESULT_ERROR;
 		}
 	}
+}
+
+bool CenterDBCtrl::ModifyPassportAndPassword( uint64 dwPassportId, std::string dwPassport, std::string strPwd )
+{
+    m_db->escape_string( dwPassport );
+    m_db->escape_string( strPwd );
+
+    return m_db->PExecute( "update passport_info set passport=%s, pwd=%s, auth_type=%u where passport_id=%llu",
+            dwPassport.c_str(), strPwd.c_str(), E_LOGIN_AUTH_TYPE_ACCOUNT, dwPassportId );
 }
 
 bool CenterDBCtrl::ModifyPassword( uint64 dwPassportId, std::string strNewPwd )
@@ -1481,9 +1165,12 @@ bool CenterDBCtrl::ModifyPassword( uint32 dwRoleId, std::string strOldPwd, std::
 	);
 }
 
-bool CenterDBCtrl::ModifyPlatform( uint64 passportId, uint16 platform )
+bool CenterDBCtrl::UpdateCDKStatus( uint64 dwPassportId, uint8 byCDKStatus )
 {
-	return m_db->PExecute("update passport_info set platform=%u where passport_id=%llu", platform, passportId);
+    return m_db->PExecute(
+            "update passport_info set cdk_status='%u' where passport_id=%llu",
+            byCDKStatus, dwPassportId
+            );
 }
 
 bool CenterDBCtrl::InsertPassportInfo(
@@ -1492,7 +1179,7 @@ bool CenterDBCtrl::InsertPassportInfo(
 			std::string		strMail,
 			std::string		strUid,
 			std::string		strToken,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			uint8			byAuthType,
 			uint32			dwCreateTime,
 			uint8			byGmAuth,
@@ -1501,7 +1188,8 @@ bool CenterDBCtrl::InsertPassportInfo(
 			std::string		strCreateDeviceType,
 			std::string		strOpenUdid,
 			std::string		strAppleUdid,
-			uint64&			odwPassportId )
+			uint64&			odwPassportId,
+            uint8           byCDKStatus )
 {
 	if ( m_bReadOnly )
 	{
@@ -1518,46 +1206,52 @@ bool CenterDBCtrl::InsertPassportInfo(
 	m_db->escape_string( strCreateDevice );
 	m_db->escape_string( strCreateDeviceType );
 
-	odwPassportId = NextPassportId( wPlatform );
+	odwPassportId = NextPassportId( dwPlatform );
 
 	bool ret = m_db->PExecute(
-		"insert into passport_info(passport_id,passport,pwd,mail,uid,token,platform,auth_type,create_time,gm_auth,reg_ip,reg_device,reg_device_type,open_udid,apple_udid) "
-		"values(%llu,'%s','%s','%s','%s','%s',%u,%u,%u,%u,'%s','%s','%s','%s','%s')",
+		"insert into passport_info(passport_id,passport,pwd,mail,uid,token,platform,auth_type,create_time,gm_auth,reg_ip,reg_device,reg_device_type,open_udid,apple_udid,cdk_status) "
+		"values(%llu,'%s','%s','%s','%s','%s',%u,%u,%u,%u,'%s','%s','%s','%s','%s','%u')",
 		odwPassportId, strPassport.c_str(), strPwd.c_str(), strMail.c_str(), strUid.c_str(), strToken.c_str(),
-		wPlatform, byAuthType, dwCreateTime, byGmAuth, strCreateIp.c_str(),
-		strCreateDevice.c_str(), strCreateDeviceType.c_str(), strOpenUdid.c_str(), strAppleUdid.c_str()
+		dwPlatform, byAuthType, dwCreateTime, byGmAuth, strCreateIp.c_str(),
+		strCreateDevice.c_str(), strCreateDeviceType.c_str(), strOpenUdid.c_str(), strAppleUdid.c_str(), byCDKStatus
 	);
 
-	if ( ret )
-	{
-		// activate advertise
-		m_db->PExecute( "update ad_active_info set status=1 where device_mac_md5='%s' and status=0", strUid.c_str() );
-		return true;
-	}
-	else
-	{
-		IME_SQLERROR("Error Insert Passport");
-	}
 	return ret;
 }
 
-bool CenterDBCtrl::GetPassportInfo(
-		uint64			dwPassportId,
-		uint16&			owPlatform,
-		std::string&	ostrPlatformId,
-		uint8&			obyGmAuth )
+bool CenterDBCtrl::GetPassportInfo( uint64 dwPassportId, STC_PASSPORT_INFO& stcInfo )
 {
 	QueryResult* result = m_db->PQuery(
-		"select platform, passport, gm_auth from passport_info where passport_id=%llu", dwPassportId
+		"select passport, pwd, mail, uid, token, platform, auth_type, create_time, gm_auth, reg_ip, reg_device, reg_device_type, "
+		"last_login_time, last_login_server, open_udid, apple_udid, token_ip, token_time, cdk_status from passport_info where passport_id=%llu",
+		dwPassportId
 	);
 
 	if ( result )
 	{
 		Field* field = result->Fetch();
+		int i = 0;
 
-		owPlatform  	= field[0].GetUInt16();
-		ostrPlatformId 	= field[1].GetString();
-		obyGmAuth		= field[2].GetUInt8();
+		stcInfo.ddwPassportId	= dwPassportId;
+		stcInfo.strPassport		= field[i++].GetString();
+		stcInfo.strPwd			= field[i++].GetString();
+		stcInfo.strMail			= field[i++].GetString();
+		stcInfo.strUid			= field[i++].GetString();
+		stcInfo.strToken		= field[i++].GetString();
+		stcInfo.dwPlatform		= field[i++].GetUInt32();
+		stcInfo.byAuthType		= field[i++].GetUInt8();
+		stcInfo.dwCreateTime	= field[i++].GetUInt32();
+		stcInfo.byGmAuth		= field[i++].GetUInt8();
+		stcInfo.strCreateIp		= field[i++].GetString();
+		stcInfo.strCreateDevice	= field[i++].GetString();
+		stcInfo.strCreateDeviceType = field[i++].GetString();
+		stcInfo.dwLastLoginTime	= field[i++].GetUInt32();
+		stcInfo.dwLastLoginServerId = field[i++].GetUInt32();
+		stcInfo.strOpenUdid		= field[i++].GetString();
+		stcInfo.strAppleUdid	= field[i++].GetString();
+		stcInfo.strTokenIp		= field[i++].GetString();
+		stcInfo.dwTokenTime		= field[i++].GetUInt32();
+		stcInfo.byCDKStatus     = field[i++].GetUInt8();
 
 		delete result;
 		return true;
@@ -1566,58 +1260,6 @@ bool CenterDBCtrl::GetPassportInfo(
 	{
 		return false;
 	}
-}
-
-bool CenterDBCtrl::GetCountryNameByPassportId(uint64_t dwPassportId, std::string &country_name)
-{
-	QueryResult* result = m_db->PQuery(
-			"select IP_COUNTRY from passport_info where passport_id=%llu", dwPassportId);
-	if ( result )
-	{
-		Field* field = result->Fetch();
-		if (field[0].GetLength() == 0)
-			country_name = "";
-		else
-			country_name = field[0].GetString();
-		delete result;
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-uint32 CenterDBCtrl::GetPassportRegTime( uint64 dwPassportId )
-{
-	QueryResult* result = m_db->PQuery(
-		"select create_time from passport_info where passport_id=%llu", dwPassportId
-	);
-
-	uint32 ret = 0;
-
-	if ( result )
-	{
-		ret = result->Fetch()[0].GetUInt32();
-		delete result;
-	}
-	return ret;
-}
-
-std::string CenterDBCtrl::GetDevice( uint64 dwPassportId )
-{
-	QueryResult* result = m_db->PQuery(
-		"select reg_device from passport_info where passport_id=%llu", dwPassportId
-	);
-
-	if ( result )
-	{
-		std::string ret = result->Fetch()[0].GetString();
-		delete result;
-
-		return ret;
-	}
-	return "";
 }
 
 uint64 CenterDBCtrl::GetPassportId( uint32 dwRoleId )
@@ -1641,7 +1283,7 @@ bool CenterDBCtrl::GetLoginStrategy(
 		STC_LOGIN_STRATEGY& oStrategy )
 {
 	QueryResult* result = m_db->PQuery(
-		"select condition_id, type, value from login_strategy where strategy_id=%u order by condition_id", dwStrategyId );
+		"select condition_id, type, value, is_not from login_strategy where strategy_id=%u order by condition_id", dwStrategyId );
 	if ( result )
 	{
 		oStrategy.vvConditions.clear();
@@ -1663,6 +1305,7 @@ bool CenterDBCtrl::GetLoginStrategy(
 			STC_LOGIN_STRATEGY_CONDITION t;
 			t.byType	= field[1].GetUInt8();
 			t.strValue	= field[2].GetString();
+			t.bIsNot	= field[3].GetBool();
 
 			oStrategy.vvConditions.back().push_back( t );
 
@@ -1678,59 +1321,70 @@ bool CenterDBCtrl::GetLoginStrategy(
 	}
 }
 
-bool CenterDBCtrl::BackupPassportOfRole( DatabaseMysql* dstDB, uint32 dwRoleId )
+bool CenterDBCtrl::GetOrUpdateRelayServerStatus(
+		RelayServerStatusContainer& mapRelayServer)
 {
-	if ( dwRoleId & 1 ) return true;
-
-	QueryResult* result = m_db->PQuery(
-		"select passport_id from re_passport_player where role_id=%u", dwRoleId
-	);
-
-	if ( !result )
+	QueryResult *result = m_db->Query(
+			"select relay_type, relay_group, server_id, update_time, merge_group from relayserver_info" );
+	if( result)
 	{
-		IME_SQLERROR( "Error Backup Passport To GameServer, roleId=%u", dwRoleId );
-		return false;
-	}
-	Field* field = result->Fetch();
-	uint64 dwPassportId = field[0].GetUInt64();
-	delete result;
+		uint64 u64Cnt = result->GetRowCount();
+		for(uint64 i = 0; i < u64Cnt; ++i)
+		{
+			Field *fields = result->Fetch();
 
-	result = m_db->PQuery(
-		"select passport,pwd,mail,uid,token,platform,auth_type,create_time,gm_auth,reg_ip,reg_device,reg_device_type from passport_info "
-		"where passport_id=%llu", dwPassportId
-	);
+			STC_RELAY_SERVER_STATUS stcServer;
+			stcServer.byType 		= fields[0].GetUInt8();
+			stcServer.dwGroup		= fields[1].GetUInt32();
+			stcServer.dwServerId	= fields[2].GetUInt16();
+			stcServer.dwUpdateTime	= fields[3].GetUInt32();
+			stcServer.byMergeGroup	= fields[4].GetUInt8();
 
-	if ( !result )
-	{
-		IME_SQLERROR( "Error Backup Passport To GameServer, passportId=%llu", (unsigned long long int)dwPassportId );
-		return false;
-	}
-	field = result->Fetch();
+			RelayServerStatusContainer::iterator it = mapRelayServer.find( MK(stcServer.byType,stcServer.dwGroup) );
 
-	bool ret = dstDB->PExecute(
-			"insert into passport_info(passport_id,passport,pwd,mail,uid,token,platform,auth_type,create_time,gm_auth,reg_ip,reg_device,reg_device_type) "
-			"values(%llu,'%s','%s','%s','%s','%s',%u,%u,%u,%u,'%s','%s','%s')",
-			dwPassportId,
-			field[0].GetString(),
-			field[1].GetString(),
-			field[2].GetString(),
-			field[3].GetString(),
-			field[4].GetString(),
-			field[5].GetUInt16(),
-			field[6].GetUInt8(),
-			field[7].GetUInt32(),
-			field[8].GetUInt8(),
-			field[9].GetString(),
-			field[10].GetString(),
-			field[11].GetString()
-		);
+			if ( it != mapRelayServer.end() )
+			{
+				uint32 dwPreUpdateTime = it->second.dwUpdateTime;
+				it->second = stcServer;
+				it->second.bIsAlive = ( dwPreUpdateTime != it->second.dwUpdateTime );;
+				if ( !it->second.bIsAlive )
+				{
 
-	delete result;
+					UpdateClosedGameServer( stcServer.dwServerId );
+				}
+			}
+			else
+			{
+				mapRelayServer.insert( std::make_pair(  MK(stcServer.byType,stcServer.dwGroup), stcServer ) );
+			}
 
-	if ( !ret )
-	{
-		IME_SQLERROR( "Insert Error When Backup Passport To GameServer" );
-		return false;
+			result->NextRow();
+		}
+		delete result;
+		for( RelayServerStatusContainer::iterator iterMaster = mapRelayServer.begin(); iterMaster != mapRelayServer.end(); iterMaster++ )
+		{
+			RelayServerStatusContainer::iterator iter = iterMaster;
+			while(iter->second.byMergeGroup !=0)
+			{
+				iter = mapRelayServer.find(MK(iterMaster->second.byType, iterMaster->second.dwGroup));
+				if( iter == mapRelayServer.end())
+				{
+//					iterMaster->second.dwServerId = 0;
+					IME_SYSTEM_ERROR( "GetRelayServer", "The RelayServer After Merge Not Found, Type=%u , Group =%u"
+							, iterMaster->second.byType,iterMaster->second.dwGroup );
+					break;
+				}
+				if( iter == iterMaster)
+				{
+					IME_SYSTEM_ERROR( "GetRelayServer"," There is a loop when merge Relay Server");
+					break;
+				}
+			}
+			if( iter == mapRelayServer.end()) continue;
+			iterMaster->second.dwServerId = iter->second.dwServerId;
+		}
+
+
 	}
 	return true;
 }
@@ -1745,7 +1399,8 @@ bool CenterDBCtrl::GetOrUpdateGameServerStatus(
 	}
 
 	QueryResult *result = m_db->Query(
-		"select server_id, server_name, ip,port,version,res_version,res_version_config,online_num,can_login,status,login_strategy_id, res_server_ip, update_time, version_code, can_register, merge_times, last_merge_time, center_port from gameserver_info" );
+		"select server_id, server_name, ip,local_ip,port,version,res_version,res_version_config,online_num,can_login,status,"
+		"login_strategy_id, res_server_ip, update_time, is_test, activate_req, server_identify, db_name from gameserver_info" );
 
 	if ( result )
 	{
@@ -1759,22 +1414,27 @@ bool CenterDBCtrl::GetOrUpdateGameServerStatus(
 			stcServer.dwServerId 	= fields[0].GetUInt16();
 			stcServer.strServerName	= fields[1].GetString();
 			stcServer.strIp			= fields[2].GetString();
-			stcServer.dwPort		= fields[3].GetUInt32();
-			stcServer.strVersion	= fields[4].GetString();
-			stcServer.strResVersionFull	= fields[5].GetString();
-			stcServer.strResVersionConfig = fields[6].GetString();
-			stcServer.dwOnlineNum 	= fields[7].GetUInt32();
-			stcServer.byCanLogin	= fields[8].GetUInt8();
-			stcServer.byStatus		= fields[9].GetUInt8();
-			stcServer.dwLoginStrategy = fields[10].GetUInt32();
-			stcServer.strResServerAddr = fields[11].GetString();
-			stcServer.dwLastUpdateTime = fields[12].GetUInt32();
-			stcServer.dwServerVersionCode = fields[13].GetUInt32();
-			stcServer.dwCanRegister = fields[14].GetUInt32();
-			stcServer.dwMergeTimes = fields[15].GetUInt8();
-			stcServer.dwLastMergeTime = fields[16].GetUInt32();
-			stcServer.dwCenterPort 	= fields[17].GetUInt32();
-
+			stcServer.strLocalIp	= fields[3].GetString();
+			stcServer.dwPort		= fields[4].GetUInt32();
+			stcServer.strVersion	= fields[5].GetString();
+			stcServer.strClientVer	= fields[6].GetString();
+			stcServer.strResVer		= fields[7].GetString();
+			stcServer.dwOnlineNum 	= fields[8].GetUInt32();
+			stcServer.byCanLogin	= fields[9].GetUInt8();
+			stcServer.byStatus		= fields[10].GetUInt8();
+			stcServer.dwLoginStrategy = fields[11].GetUInt32();
+			stcServer.strResServerAddr = fields[12].GetString();
+			stcServer.dwLastUpdateTime = fields[13].GetUInt32();
+			stcServer.bIsTest		= fields[14].GetBool();
+			stcServer.byActivateReq	= fields[15].GetUInt8();
+			stcServer.byServerIdentify = fields[16].GetUInt8();
+			stcServer.strDbName     = fields[17].GetString();
+			//
+			std::vector<std::string> vs;
+			CUtil::StrSplit(stcServer.strClientVer,"-",vs);
+			if(vs.size() >=1) stcServer.strClientVer = vs[0];
+			if(vs.size() >=2) stcServer.strClientResVer = vs[1];
+			///
 			std::map<uint32, STC_SERVER_STATUS>::iterator it = mapServer.find( stcServer.dwServerId );
 
 			if ( it != mapServer.end() )
@@ -1832,8 +1492,8 @@ bool CenterDBCtrl::GetOrUpdateGameServerStatus(
 						it->second.strIp		= itMaster->second.strIp;
 						it->second.dwPort		= itMaster->second.dwPort;
 						it->second.strVersion	= itMaster->second.strVersion;
-						it->second.strResVersionFull	= itMaster->second.strResVersionFull;
-						it->second.strResVersionConfig 	= itMaster->second.strResVersionConfig;
+						it->second.strClientVer	= itMaster->second.strClientVer;
+						it->second.strResVer 	= itMaster->second.strResVer;
 
 						it->second.dwOnlineNum 	= 0;
 						it->second.byCanLogin	= itMaster->second.byCanLogin;
@@ -1842,10 +1502,10 @@ bool CenterDBCtrl::GetOrUpdateGameServerStatus(
 							it->second.dwLoginStrategy 	= itMaster->second.dwLoginStrategy;
 						it->second.strResServerAddr = itMaster->second.strResServerAddr;
 						it->second.bIsAlive 	= itMaster->second.bIsAlive;
-						it->second.dwCanRegister = itMaster->second.dwCanRegister;
-						it->second.dwMergeTimes = itMaster->second.dwMergeTimes;
-						it->second.dwLastMergeTime = itMaster->second.dwLastMergeTime;
-						it->second.dwCenterPort = itMaster->second.dwCenterPort;
+						it->second.bIsTest		= itMaster->second.bIsTest;
+						it->second.byActivateReq= itMaster->second.byActivateReq;
+						it->second.byServerIdentify = itMaster->second.byServerIdentify;
+						it->second.strDbName = itMaster->second.strDbName;
 					}
 				}
 			}
@@ -1882,39 +1542,42 @@ bool CenterDBCtrl::UpdateClosedGameServer( uint32 dwServerId )
 	}
 }
 
-int CenterDBCtrl::GetOrInsertRoleId( uint64 dwPassportId, uint32 dwServerIdOrigin, uint32 &roleId, uint32 canRegister)
+uint32 CenterDBCtrl::GetRoleId( uint64 dwPassportId, uint32 dwServerIdOrigin )
 {
 	QueryResult* result = m_db->PQuery(
 		"select role_id from re_passport_player where passport_id=%llu and server_id_origin=%u",
 		dwPassportId, dwServerIdOrigin
 	);
-
 	if ( result )
 	{
 		Field* field = result->Fetch();
 		uint32 dwRoleId = field[0].GetUInt32();
 		delete result;
-		roleId = dwRoleId;
-		return 0;
+		return dwRoleId;
+	}
+	return 0;
+}
+
+uint32 CenterDBCtrl::GetOrInsertRoleId( uint64 dwPassportId, uint32 dwServerIdOrigin )
+{
+	uint32 dwRoleId = GetRoleId( dwPassportId, dwServerIdOrigin );
+	if ( dwRoleId )
+	{
+		return dwRoleId;
 	}
 	else
 	{
-		if (!canRegister)
-		{
-			return 1;
-		}
-		uint32 dwRoleId = NextRoleId();
+		dwRoleId = NextRoleId();
 
 		if (m_db->PExecute( "insert into re_passport_player(role_id, passport_id, server_id, server_id_origin, create_time) values(%u, %llu, %u, %u, %u)",
 				dwRoleId, dwPassportId, GetServerIdMerged(dwServerIdOrigin), dwServerIdOrigin, GetDBTime() ) )
 		{
-			roleId = dwRoleId;
-			return 0;
+			return dwRoleId;
 		}
 		else
 		{
 			IME_ERROR( "Error When Insert Into re_passport_player" );
-			return -1;
+			return 0;
 		}
 	}
 }
@@ -1930,17 +1593,18 @@ bool CenterDBCtrl::RegisterPassport(
 			std::string		strMail,
 			std::string		strUid,
 			std::string		strToken,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			std::string		strRegIp,
 			std::string		strRegDevice,
 			std::string		strRegDeviceType,
 			std::string		strOpenUdid,
-			std::string		strAppleUdid )
+			std::string		strAppleUdid,
+			uint8           byCDKStatus )
 {
 	m_db->escape_string( strPassport );
 
 	QueryResult* result = m_db->PQuery("select passport_id from passport_info where passport='%s' and platform=%u and auth_type=%u",
-			strPassport.c_str(), wPlatform, E_LOGIN_AUTH_TYPE_ACCOUNT );
+			strPassport.c_str(), dwPlatform, E_LOGIN_AUTH_TYPE_ACCOUNT );
 
 	if ( result )
 	{
@@ -1959,245 +1623,44 @@ bool CenterDBCtrl::RegisterPassport(
 
 		uint64 dwPassportId;
 
-		return InsertPassportInfo( strPassport, strPwd, strMail, strUid, strToken, wPlatform, E_LOGIN_AUTH_TYPE_ACCOUNT,
-				GetDBTime(), 0, strRegIp, strRegDevice, strRegDeviceType, strOpenUdid, strAppleUdid, dwPassportId );
+		return InsertPassportInfo( strPassport, strPwd, strMail, strUid, strToken, dwPlatform, E_LOGIN_AUTH_TYPE_ACCOUNT,
+				GetDBTime(), 0, strRegIp, strRegDevice, strRegDeviceType, strOpenUdid, strAppleUdid, dwPassportId, byCDKStatus == 0 ? E_CDK_STATE_NO_NEED_VERIFY : E_CDK_STATE_NOT_VERIFIED);
 	}
 }
-
 
 bool CenterDBCtrl::InsertOrUpdateRoleInfo(
-			uint32			dwRoleId,
-			std::string		strRoleName,
-			uint32			dwProgress,
-			uint32			dwLevel,
-			uint32			dwGold,
-			uint32			dwDiamond,
-			uint32			dwCurStage,
-			uint32			dwCurTrain,
-			uint32			dwVipLevel,
-			uint32			dwVipExp,
-			uint32			dwStamina,
-			uint32			dwEnergy,
-			uint32			dwMainQuestId,
-			uint32			dwDiamondPay
+        uint32          dwRoleId,
+        std::string     strRoleName,
+        uint8           byGmAuth,
+        uint32          dwProgress,
+        uint32          dwLevel,
+        uint32          dwGold,
+        uint32          dwDiamond,
+        uint32          dwCurStage,
+        uint32          dwCurTrain,
+        uint32          dwVipLevel,
+        uint32          dwVipExp,
+        uint32          dwStamina,
+        uint32          dwEnergy,
+        uint32          dwMainQuestId,
+        uint32          dwDiamondPay,
+		uint32			dwCreateTime
 	)
 {
 	if ( dwRoleId & 1 ) return true;
 
-	QueryResult* result = m_db->PQuery( "select role_id from player_info where role_id=%u", dwRoleId );
-	if ( result )
-	{
-		delete result;
-
-		m_db->escape_string( strRoleName );
-
-		UpdateInviteLevel( dwRoleId, dwLevel );
-
-		if ( dwMainQuestId )
-		{
-			return m_db->PExecute( "update player_info set name='%s', progress=%u, level=%u, "
-					"gold=%u, diamond=%u, cur_stage=%u, cur_train=%u, vip_level=%u, vip_exp=%u, stamina=%u, energy=%u,"
-					"quest=%u, diamond_pay=%u  where role_id=%u",
-					strRoleName.c_str(), dwProgress, dwLevel, dwGold, dwDiamond, dwCurStage, dwCurTrain, dwVipLevel, dwVipExp,
-					dwStamina, dwEnergy, dwMainQuestId, dwDiamondPay, dwRoleId
-			);
-		}
-		else
-		{
-			return m_db->PExecute( "update player_info set name='%s', progress=%u, level=%u, "
-					"gold=%u, diamond=%u, cur_stage=%u, cur_train=%u, vip_level=%u, vip_exp=%u, stamina=%u, energy=%u, diamond_pay=%u where role_id=%u",
-					strRoleName.c_str(), dwProgress, dwLevel, dwGold, dwDiamond, dwCurStage, dwCurTrain, dwVipLevel, dwVipExp,
-					dwStamina, dwEnergy, dwDiamondPay, dwRoleId
-			);
-		}
-	}
-	else
-	{
-		m_db->escape_string( strRoleName );
-
-		return m_db->PExecute( "insert into player_info( role_id, name, gm_auth, status, progress, level, "
-				"gold, diamond, cur_stage, cur_train, vip_level, vip_exp, stamina, energy, quest, diamond_pay ) "
-				"values( %u, '%s', %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u )",
-				dwRoleId, strRoleName.c_str(), 0, 0, dwProgress, dwLevel, dwGold, dwDiamond, dwCurStage, dwCurTrain, dwVipLevel, dwVipExp,
-				dwStamina, dwEnergy, dwMainQuestId, dwDiamondPay
-		);
-	}
-}
-
-bool CenterDBCtrl::InsertOrUpdateRoleDetailInfo(
-			uint32			dwRoleId,
-			uint32			dwDiamondPay
-	)
-{
-	if ( dwRoleId & 1 ) return true;
-
-	QueryResult* result = m_db->PQuery( "select role_id from player_detail where role_id=%u", dwRoleId );
-	if ( result )
-	{
-		delete result;
-		return m_db->PExecute( "update player_detail set diamond_pay='%u' where role_id=%u", dwDiamondPay, dwRoleId );
-	}
-	else
-	{
-		return m_db->PExecute( "insert into player_detail( role_id, diamond_pay ) values( %u, %u )", dwRoleId, dwDiamondPay );
-	}
-}
-
-bool CenterDBCtrl::InsertOrUpdateRoleLastOp(
-			uint32			dwRoleId,
-			uint32			dwLastOp
-	)
-{
-	if ( dwRoleId & 1 ) return true;
-
-	QueryResult* result = m_db->PQuery( "select role_id from player_detail where role_id=%u", dwRoleId );
-	if ( result )
-	{
-		delete result;
-		return m_db->PExecute( "update player_detail set last_op='%u' where role_id=%u", dwLastOp , dwRoleId );
-	}
-	else
-	{
-		return m_db->PExecute( "insert into player_detail( role_id, last_op ) values( %u, %u )", dwRoleId, dwLastOp );
-	}
-}
-
-uint32 CenterDBCtrl::InsertActivity(
-		uint32			dwServerId,
-		uint8			byTypeId,
-		std::string		strParam,
-		ByteBuffer&		data,
-		uint32			dwGmCommandId )
-{
-	std::string str;
-	str.append( (const char*)data.contents(), data.size() );
-	m_db->escape_string( str );
-	m_db->escape_string( strParam );
-
-	if ( !m_db->PExecute(
-		"insert into active_info(server_id, type_id, param, act_data, gm_cmd_id) values(%u, %u, '%s', '%s', %u)",
-		dwServerId, byTypeId, strParam.c_str(), str.c_str(), dwGmCommandId
-	) )
-	{
-		IME_SQLERROR("Error When Insert Activity Info");
-		return 0;
-	}
-
-	QueryResult* result = m_db->PQuery( "select LAST_INSERT_ID()" );
-
-	if ( result )
-	{
-		uint32 ret = result->Fetch()[0].GetUInt32();
-		delete result;
-
-		return ret;
-	}
-	else
-	{
-		IME_SQLERROR("Error When Insert Activity Info");
-		return 0;
-	}
-}
-
-bool CenterDBCtrl::UpdateActivity(
-		uint32			dwAutoId,
-		ByteBuffer&		data )
-{
-	std::string str;
-	str.append( (const char*)data.contents(), data.size() );
-	m_db->escape_string( str );
-
-	if ( !m_db->PExecute(
-		"update active_info set act_data='%s' where auto_id=%u", str.c_str(), dwAutoId ) )
-	{
-		IME_SQLERROR( "Error When Update Activity Info, autoId=%u", dwAutoId );
-		return false;
-	}
-	return true;
-}
-
-bool CenterDBCtrl::UpdateTimeCardRecord( uint32 dwRoleId, std::string szCardInfo )
-{
-   m_db->PExecute("update player_detail set timecard_state = '%s' where role_id=%llu ", szCardInfo.c_str(), dwRoleId );
-   return true;
-}
-
-bool CenterDBCtrl::GetAllActivity(
-		std::vector<STC_ACTIVITY_INFO>& vActivity, uint32 dwGameServerId )
-{
-	QueryResult* result = m_db->PQuery( "select auto_id, type_id, param, act_data, gm_cmd_id from active_info where server_id=%u", dwGameServerId );
-	vActivity.clear();
-
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			Field* field = result->Fetch();
-			STC_ACTIVITY_INFO t;
-
-			t.dwAutoId	= field[0].GetUInt32();
-			t.dwServerId= dwGameServerId;
-			t.byType	= field[1].GetUInt8();
-			t.strParam	= field[2].GetString();
-
-			std::string str;
-			str.append( field[3].GetString(), field[3].GetLength() );
-			t.data.clear();
-			t.data.append( str.data(), str.size() );
-
-			t.dwGmCommandId	= field[4].GetUInt32();
-
-			vActivity.push_back( t );
-			result->NextRow();
-		}
-
-		delete result;
-	}
-	return true;
-}
-
-bool CenterDBCtrl::DeleteAllActivity( uint32 dwGameServerId )
-{
-	return m_db->PExecute("delete from active_info where server_id=%u", dwGameServerId );
-}
-
-bool CenterDBCtrl::DeleteActivity( uint32 dwAutoId )
-{
-	if ( !m_db->PExecute( "delete from active_info where auto_id=%u", dwAutoId ) )
-	{
-		IME_SQLERROR("Error When Delete Activity Info");
-		return false;
-	}
-	return true;
-}
-
-bool CenterDBCtrl::UpdateRoleLastLoginTime(
-			uint32			dwRoleId )
-{
-	uint32 dwTime = GetDBTime();
-
-	QueryResult* result = m_db->PQuery( "select role_id from player_info where role_id=%u", dwRoleId );
-	if ( !result )
-	{
-		m_db->PExecute( "insert into player_info(role_id, last_login_time) values(%u, %u)", dwRoleId, dwTime );
-	}
-	else
-	{
-		m_db->PExecute( "update player_info set last_login_time=%u where role_id=%u", dwTime, dwRoleId );
-		delete result;
-	}
-
-	result = m_db->PQuery( "select passport_id from re_passport_player where role_id=%u", dwRoleId );
-	if ( result )
-	{
-		uint64 pid = result->Fetch()[0].GetUInt64();
-		m_db->PExecute( "update passport_info set last_login_time=%u where passport_id=%llu", dwTime, pid );
-
-		delete result;
-		return true;
-	}
-	return false;
+	m_db->escape_string( strRoleName );
+	// Async
+	return m_db->PExecute( "insert into player_info( role_id, name, gm_auth, status, progress, level, "
+		"gold, diamond, cur_stage, cur_train, vip_level, vip_exp, stamina, energy, quest, diamond_pay,create_time ) "
+		"values( %u, '%s', %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u ,%u) on duplicate key update "
+		"name='%s', progress=%u, level=%u, gold=%u, diamond=%u, cur_stage=%u, cur_train=%u, vip_level=%u, "
+		"vip_exp=%u, stamina=%u, energy=%u, quest=%u, diamond_pay=%u,create_time=%u",
+		dwRoleId,
+		strRoleName.c_str(), byGmAuth, 0, dwProgress, dwLevel, dwGold, dwDiamond, dwCurStage, dwCurTrain, dwVipLevel, dwVipExp,
+		dwStamina, dwEnergy, dwMainQuestId, dwDiamondPay,dwCreateTime,
+		strRoleName.c_str(), dwProgress, dwLevel, dwGold, dwDiamond, dwCurStage, dwCurTrain, dwVipLevel, dwVipExp,
+		dwStamina, dwEnergy, dwMainQuestId, dwDiamondPay,dwCreateTime );
 }
 
 bool CenterDBCtrl::UpdatePassportGmAuth(
@@ -2207,82 +1670,44 @@ bool CenterDBCtrl::UpdatePassportGmAuth(
 	return m_db->PExecute("update passport_info set gm_auth=%u where passport_id=%llu", byGmAuth, dwPassportId );
 }
 
-bool CenterDBCtrl::UpdateRoleGmAuth(uint32 dwRoleId, uint8 byGmAuth, bool toSamePassportRoles)
-{
-	if (!toSamePassportRoles)
-		return m_db->PExecute("update player_info set gm_auth=%u where role_id=%u", byGmAuth, dwRoleId );
-	else
-		return m_db->PExecute("UPDATE `player_info` SET gm_auth=%u WHERE role_id IN (SELECT role_id FROM `re_passport_player` WHERE passport_id=(SELECT passport_id FROM  re_passport_player WHERE role_id=%u))", byGmAuth, dwRoleId);
-}
-bool CenterDBCtrl::UpdateRoleGmAuthByPassport(
-		uint64			dwPassportId,
+bool CenterDBCtrl::UpdateRoleGmAuth(
+		uint32			dwRoleId,
 		uint8			byGmAuth )
 {
-	return m_db->PExecute("UPDATE `player_info` SET gm_auth=%u WHERE role_id IN (SELECT role_id FROM `re_passport_player` WHERE passport_id=%llu)", byGmAuth, dwPassportId);
+	return m_db->PExecute("update player_info set gm_auth=%u where role_id=%u", byGmAuth, dwRoleId );
 }
-
-
-bool CenterDBCtrl::ClearPassportGmAuth()
-{
-	return m_db->PExecute("update passport_info set gm_auth = 0 where gm_auth > 0");
-}
-
-bool CenterDBCtrl::ClearRoleGmAuth()
-{
-	return m_db->PExecute("update player_info set gm_auth = 0 where gm_auth > 0");
-}
-
-//bool CenterDBCtrl::InsertPlayerInfo(
-//			uint32			dwRoleId,
-//			std::string		strRoleName,
-//			uint8			byGmAuth,
-//			uint8			byStatus
-//	)
-//{
-//	m_db->escape_string( strRoleName );
-//
-//	return m_db->PExecute(
-//		"insert into player_info( role_id, name, gm_auth, status ) values(%u, '%s', %u, %u)",
-//		dwRoleId, strRoleName.c_str(), byGmAuth, byStatus
-//	);
-//}
-//
-//bool CenterDBCtrl::UpdatePlayerInfo(
-//			uint32			dwRoleId,
-//			std::string		strRoleName,
-//			uint8			byGmAuth,
-//			uint8			byStatus
-//	)
-//{
-//	m_db->escape_string( strRoleName );
-//
-//	return m_db->PExecute(
-//		"update player_info set name='%s', gm_auth=%u, status=%u where role_id=%u",
-//		strRoleName.c_str(), byGmAuth, byStatus, dwRoleId
-//	);
-//}
 
 uint32 CenterDBCtrl::InsertLoginInfo(
 			uint32 			dwRoleId,
-			std::string		strRegIp,
-			std::string		strRegDevice,
-			std::string		strRegDeviceType )
+			std::string		strLoginIp,
+			std::string		strLoginDevice,
+			std::string		strLoginDeviceType )
 {
-//	if ( dwRoleId & 1 ) return 0;
+	if ( dwRoleId & 1 ) return 0;
 
-	m_db->escape_string( strRegIp );
-	m_db->escape_string( strRegDevice );
-	m_db->escape_string( strRegDeviceType );
+	m_db->escape_string( strLoginIp );
+	m_db->escape_string( strLoginDevice );
+	m_db->escape_string( strLoginDeviceType );
 
-	// NOTE: 'InsertLogoutInfo' will not be invoke as expected if game server crash
+	uint32 dwTime = GetDBTime();
+
+	// Async
+	m_db->PExecute( "insert into player_info(role_id, last_login_time) values(%u, %u) "
+			"on duplicate key update last_login_time=%u",
+			dwRoleId, dwTime, dwTime );
+
+	// Async
+	m_db->PExecute( "update passport_info a inner join re_passport_player b on (a.passport_id=b.passport_id) "
+			"set a.last_login_time=%u where b.role_id=%u",
+			dwTime, dwRoleId );
+
 	m_db->PExecute(
 		"insert into role_login_info(role_id, login_time, logout_time, login_ip, login_device, login_device_type) "
 		"values(%u, %u, %u, '%s', '%s', '%s')",
-		dwRoleId, GetDBTime(), 0, strRegIp.c_str(), strRegDevice.c_str(), strRegDeviceType.c_str()
+		dwRoleId, GetDBTime(), 0, strLoginIp.c_str(), strLoginDevice.c_str(), strLoginDeviceType.c_str()
 	);
 
 	QueryResult* result = m_db->PQuery( "select LAST_INSERT_ID()" );
-
 	if ( result )
 	{
 		uint32 ret = result->Fetch()[0].GetUInt32();
@@ -2307,71 +1732,11 @@ bool CenterDBCtrl::InsertLogoutInfo( uint32 dwAutoId )
 	);
 }
 
-bool CenterDBCtrl::GetExtendReward( const char* strTableName, const char* strId, uint32& dwItemId, uint32& dwItemCnt, uint8& byState )
-{
-	if ( !ExistsTable( strTableName ) )
-	{
-		IME_SQLERROR( "Table Not Found When GetExtendReward, name=%s", strTableName );
-		return false;
-	}
-
-	QueryResult* result = m_db->PQuery(
-		"select item_id, item_cnt, state from %s where id='%s'",
-		strTableName, strId );
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-
-		dwItemId	= field[0].GetUInt32();
-		dwItemCnt	= field[1].GetUInt32();
-		byState		= field[2].GetUInt8();
-
-		delete result;
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-bool CenterDBCtrl::InsertOrUpdateOperStatisticsInfo(uint32	dwRoleId,ByteBuffer &data)
-{
-	std::string str = "";
-	str.append( (const char*)data.contents(), data.size() );
-
-	QueryResult* result = m_db->PQuery( "select oper_statistics from player_detail where role_id=%u", dwRoleId );
-	if ( result )
-	{
-		delete result;
-		return m_db->PExecute( "update player_detail set oper_statistics='%s' where role_id=%u", str.c_str(), dwRoleId );
-	}
-	else
-	{
-		return false;
-	}
-}
-
-
-bool CenterDBCtrl::SetExtendRewardGot( const char* strTableName, const char* strId, uint8 byState )
-{
-	if ( !ExistsTable( strTableName ) )
-	{
-		IME_SQLERROR( "Table Not Found When GetExtendReward, name=%s", strTableName );
-		return false;
-	}
-
-	return m_db->PExecute(
-		"update %s set state=%u where id='%s'", strTableName, byState, strId
-	);
-}
-
 bool CenterDBCtrl::GetUnhandledCharge(
 		std::list<STC_CHARGE_INFO>& vCharges )
 {
 	QueryResult* result = m_db->PQuery(
-		"select auto_id, role_id, goods_id, goods_quantity, addition2, platform, addition5, addition3, value, platform_payment_type from charge_info where state=%u",
+		"select auto_id, role_id, goods_id, goods_quantity, addition2, platform, addition5 from charge_info where state=%u",
 		E_CHARGE_STATE_PAYED
 	);
 
@@ -2390,11 +1755,8 @@ bool CenterDBCtrl::GetUnhandledCharge(
 			ci.dwGoodsId	= field[2].GetUInt32();
 			ci.dwGoodsQuantity = field[3].GetUInt32();
 			ci.strAddition2	= field[4].GetString();
-			ci.wPlatform	= field[5].GetUInt16();
+			ci.dwPlatform	= field[5].GetUInt32();
 			ci.strAddition5 = field[6].GetString();
-			ci.strAddition3 = field[7].GetString();
-			ci.dwValue = field[8].GetUInt32();
-			ci.dwPlatformType = field[9].GetUInt32();
 
 			vCharges.push_back( ci );
 
@@ -2407,62 +1769,6 @@ bool CenterDBCtrl::GetUnhandledCharge(
 	return true;
 }
 
-uint32 CenterDBCtrl::GethandledTotalCharge(
-		uint32 accountid )
-{
-	QueryResult* result = m_db->PQuery(
-		"select sum(virtual_value) from charge_info where state=%u and role_id =%u",
-		E_CHARGE_STATE_DISTRIBUTED, accountid
-	);
-
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-		uint32 total = field[0].GetUInt32();
-		delete result;
-		return total;
-	}
-
-	return 0;
-}
-
-bool CenterDBCtrl::GethandledTotalChargeAll(
-		std::map<uint32, uint32> &mapCharge )
-{
-	QueryResult* result = m_db->PQuery(
-		"select role_id, virtual_value from charge_info where state=%u",
-		E_CHARGE_STATE_DISTRIBUTED
-	);
-
-	mapCharge.clear();
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			Field* field = result->Fetch();
-
-			uint32 role_id		 = field[0].GetUInt32();
-			uint32 virtual_value = field[1].GetUInt32();
-			
-			if (mapCharge.find(role_id) == mapCharge.end())
-			{
-				mapCharge[role_id] = virtual_value;
-			}
-			else
-			{
-				mapCharge[role_id] += virtual_value;
-			}
-
-			result->NextRow();
-		}
-
-		delete result;
-	}
-	return true;
-}
-
 bool CenterDBCtrl::ChargeHandled(
 			uint32		dwAutoId,
 			uint32		dwDiamondValue,
@@ -2470,7 +1776,7 @@ bool CenterDBCtrl::ChargeHandled(
 			std::string strDevice,
 			std::string strDeviceType,
 			std::string strDeviceUid,
-	   		uint32		diamondPay	)
+			uint32		dwDiamondPay )
 {
 	m_db->escape_string( strIp );
 	m_db->escape_string( strDevice );
@@ -2479,8 +1785,9 @@ bool CenterDBCtrl::ChargeHandled(
 
 	return m_db->PExecute(
 		"update charge_info set virtual_value=%u, state=%u, distribute_time=%u, payment_ip='%s',"
-		"payment_device='%s', payment_device_type='%s', payment_device_uid='%s', diamond_pay = '%u' where auto_id=%u", dwDiamondValue, E_CHARGE_STATE_DISTRIBUTED,
-		GetDBTime(), strIp.c_str(), strDevice.c_str(), strDeviceType.c_str(), strDeviceUid.c_str(), diamondPay, dwAutoId
+		"payment_device='%s', payment_device_type='%s', payment_device_uid='%s', diamond_pay=%u where auto_id=%u",
+		dwDiamondValue, E_CHARGE_STATE_DISTRIBUTED, GetDBTime(), strIp.c_str(), strDevice.c_str(), strDeviceType.c_str(),
+		strDeviceUid.c_str(), dwDiamondPay, dwAutoId
 	);
 
 	return false;
@@ -2495,11 +1802,10 @@ uint32 CenterDBCtrl::CreateCharge(
 		std::string	strInnerOrderId,
 		std::string strPlatformOrderId,
 		std::string strPlatformAccount,
-		uint16		wPlatform,
+		uint32		dwPlatform,
 		uint16		wPaymentType,
 		uint32		dwPaymentTime,
-		std::string	strClientOrderId,
-	    std::string	addition2	)
+		std::string	strClientOrderId )
 {
 	m_db->escape_string( strCurrency );
 	m_db->escape_string( strInnerOrderId );
@@ -2509,10 +1815,10 @@ uint32 CenterDBCtrl::CreateCharge(
 
 	bool succ = m_db->PExecute(
 		"insert into charge_info(role_id, goods_id, goods_quantity, currency, value, type, inner_order_id,"
-		"platform_order_id, platform_account_id, platform, platform_payment_type, payment_time, client_order_id, addition2, state) "
-		"values(%u, %u, %u, '%s', %u, 0, '%s', '%s', '%s', %u, %u, %u, '%s', '%s', 1)", dwRoleId, dwGoodsId, dwGoodsQty,
+		"platform_order_id, platform_account_id, platform, platform_payment_type, payment_time, client_order_id) "
+		"values(%u, %u, %u, '%s', %u, 0, '%s', '%s', '%s', %u, %u, %u, '%s')", dwRoleId, dwGoodsId, dwGoodsQty,
 		strCurrency.c_str(), dwValue, strInnerOrderId.c_str(), strPlatformOrderId.c_str(), strPlatformAccount.c_str(),
-		wPlatform, wPaymentType, dwPaymentTime, strClientOrderId.c_str(), addition2.c_str() );
+		dwPlatform, wPaymentType, dwPaymentTime, strClientOrderId.c_str()  );
 
 	if ( succ )
 	{
@@ -2526,24 +1832,24 @@ uint32 CenterDBCtrl::CreateCharge(
 		}
 		else
 		{
-			IME_SQLERROR("Error When Get Auto Id Of Purchase Info");
+			IME_SQLERROR("Error When Get Auto Id Of charge_info");
 			return 0;
 		}
 	}
 	else
 	{
-		IME_SQLERROR("Error When Insert Info charge_info");
+		IME_SQLERROR("Error When Insert charge_info");
 		return 0;
 	}
 }
 
-bool CenterDBCtrl::HasCharge( uint16 wPlatform, std::string strPlatformOrderId )
+bool CenterDBCtrl::HasCharge( uint32 dwPlatform, std::string strPlatformOrderId )
 {
 	m_db->escape_string( strPlatformOrderId );
 
 	QueryResult* result = m_db->PQuery(
 		"select auto_id from charge_info where platform=%u and platform_order_id='%s'",
-		wPlatform, strPlatformOrderId.c_str()
+		dwPlatform, strPlatformOrderId.c_str()
 	);
 
 	if ( result )
@@ -2562,83 +1868,66 @@ uint32 CenterDBCtrl::InsertPurchaseInfo(
 			uint32			dwDiamondPaidUse,
 			uint32			dwTime )
 {
-	bool succ = m_db->PExecute(
+	return m_db->PExecute(
 		"insert into purchase_info(role_id, goods_id, goods_quantity, value, diamond_paid_use, time) "
 		"values(%u, %u, %u, %u, %u, %u)", dwRoleId, dwGoodsId, dwGoodsQuantity, dwValue, dwDiamondPaidUse, dwTime
 	);
-
-	if ( succ )
-	{
-		QueryResult* result = m_db->PQuery( "select LAST_INSERT_ID()" );
-		if ( result )
-		{
-			uint32 ret = result->Fetch()[0].GetUInt32();
-			delete result;
-
-			return ret;
-		}
-		else
-		{
-			IME_SQLERROR("Error When Get Auto Id Of Purchase Info");
-			return 0;
-		}
-	}
-	else
-	{
-		IME_SQLERROR( "Error When Insert Purchase Info" );
-		return 0;
-	}
 }
 
-//bool CenterDBCtrl::GetNoticeOfServer( uint32 dwServerId, std::string& strNotice )
-//{
-//	QueryResult* result = m_db->PQuery(
-//		"select content from notice_info where server_id=%u", dwServerId
-//	);
-//
-//	if ( result )
-//	{
-//		strNotice = result->Fetch()[0].GetString();
-//
-//		delete result;
-//		return true;
-//	}
-//	return false;
-//}
-//
-//bool CenterDBCtrl::UpdateOrInsertNotice( uint32 dwServerId, std::string strNotice )
-//{
-//	m_db->escape_string( strNotice );
-//	QueryResult* result = m_db->PQuery(
-//		"select auto_id from notice_info where server_id=%u", dwServerId
-//	);
-//	if ( result )
-//	{
-//		delete result;
-//		return m_db->PExecute("update notice_info set content='%s' where server_id=%u", strNotice.c_str(), dwServerId );
-//	}
-//	else
-//	{
-//		return m_db->PExecute("insert into notice_info( server_id, content ) values( %u, '%s' )", dwServerId, strNotice.c_str() );
-//	}
-//}
+bool CenterDBCtrl::SetChargeStatus( std::vector< uint32 >& vecRoleId, uint32 dwStartTime, uint32 dwEndTime, std::string& strErrMsg )
+{
+    if ( dwEndTime < dwStartTime )
+    {
+        IME_SYSTEM_ERROR("SetChargeStatus", "Time Error" );
+        strErrMsg = "Time Error";
+        return false;
+    }
+    bool ret = false;
+    for (unsigned int i = 0; i != vecRoleId.size(); ++i )
+    {
+
+         ret = m_db->PExecute(
+            "update charge_info set state=%u where role_id=%u AND state = %u and distribute_time >= %u and distribute_time <= %u",
+            E_CHARGE_STATE_PAYED, vecRoleId[i], E_CHARGE_STATE_DISTRIBUTED, dwStartTime, dwEndTime
+        );
+         if ( !ret )
+         {
+             IME_SYSTEM_ERROR("SetChargeStatus"," SetChargeStatus Error , RoleId = %u ", vecRoleId[i]);
+             std::stringstream ss;
+             ss << "<" << vecRoleId[i] << ">";
+             strErrMsg = ss.str();
+             continue;
+         }
+    }
+    return true;
+}
 
 std::string CenterDBCtrl::GetNotice( NoticeUseType eUseType, NoticeConditionType eCondType, uint32 dwCondValue )
 {
 	QueryResult* result = m_db->PQuery(
-		"select content from notice_info_v2 where use_type=%u and condition_type=%u and condition_value=%u",
+		"select content, start_time, end_time from notice_info_v2 where use_type=%u and condition_type=%u and condition_value=%u",
 		(uint8)eUseType, (uint8)eCondType, dwCondValue
 	);
 
 	std::string ret = "";
+	uint32 dwCurTs = GetDBTime();
 
 	if ( result )
 	{
 		uint64 cnt = result->GetRowCount();
 		for (unsigned int i = 0; i < cnt; i++ )
 		{
-			ret.append( result->Fetch()[0].GetString() );
+			Field* field = result->Fetch();
 
+			std::string content = field[0].GetString();
+			uint32 dwStartTs 	= field[1].GetUInt32();
+			uint32 dwEndTs		= field[2].GetUInt32();
+
+			if ( ( dwStartTs == 0 || dwCurTs >= dwStartTs ) &&
+				 ( dwEndTs == 0 || dwCurTs <= dwEndTs ) )
+			{
+				ret.append( content );
+			}
 			result->NextRow();
 		}
 		delete result;
@@ -2646,23 +1935,74 @@ std::string CenterDBCtrl::GetNotice( NoticeUseType eUseType, NoticeConditionType
 	return ret;
 }
 
-bool CenterDBCtrl::GetNoticeTimeRange( NoticeUseType eUseType, NoticeConditionType eCondType, uint32 dwCondValue, uint32 &dwStartTime, uint32 &dwEndTime )
+bool CenterDBCtrl::GetGameNotice(uint32 dwServId, std::vector<LoginDBNoticeInfo> & vecNotice)
 {
-	QueryResult* result = m_db->PQuery(
-		"select start_time, end_time from notice_info_v2 where use_type=%u and condition_type=%u and condition_value=%u",
-		(uint8)eUseType, (uint8)eCondType, dwCondValue
-	);
+// 这是查询所有的可用公告，会形成冗余数据，所以不用
+//	QueryResult* result = m_db->PQuery(
+//		"select content, start_time, end_time, condition_type, condition_value, auto_id from notice_info_v2 "
+//			" where (end_time=0 or end_time>unix_timestamp())"
+//			" use_type=%u and ((condition_type=%u and condition_value=%u) "
+//			" or condition_type=%u) order by auto_id",
+//			(uint8)E_NOTICE_USE_TYPE_GAME, (uint8)E_NOTICE_CONDITION_TYPE_SERVER_ID, dwServId,
+//		E_NOTICE_CONDITION_TYPE_PLATFORM);
+	QueryResult* result;
 
-	if ( result )
+	//优先查询对于该服务器的定向公告，如果没有则查询平台公告
+	result = m_db->PQuery(
+		"select content, start_time, end_time, condition_type, condition_value, auto_id from notice_info_v2 "
+			" where (end_time=0 or end_time>unix_timestamp()) and"
+			" use_type=%u and (condition_type=%u and condition_value=%u) "
+			" order by auto_id",
+			(uint8)E_NOTICE_USE_TYPE_GAME, (uint8)E_NOTICE_CONDITION_TYPE_SERVER_ID, dwServId);
+
+	if (result != NULL)
 	{
-		dwStartTime = result->Fetch()[0].GetUInt32();
-		dwEndTime = result->Fetch()[1].GetUInt32();
-
-		delete result;
-		return true;
+		if (result->GetRowCount() <= 0)
+		{
+			delete result;
+			result = NULL;
+		}
+	}
+	if (result == NULL)
+	{
+		result = m_db->PQuery(
+				"select content, start_time, end_time, condition_type, condition_value, auto_id from notice_info_v2 "
+					" where (end_time=0 or end_time>unix_timestamp()) and "
+					" use_type=%u and condition_type=%u "
+					" order by auto_id",
+					(uint8)E_NOTICE_USE_TYPE_GAME, (uint8)E_NOTICE_CONDITION_TYPE_PLATFORM);
 	}
 
-	return false;
+	if (result == NULL)
+		return false;
+
+	LoginDBNoticeInfo notice;
+
+	uint64 cnt = result->GetRowCount();
+	for (unsigned int i = 0; i < cnt; i++ )
+	{
+		Field* field = result->Fetch();
+
+		notice.strContent	= field[0].GetString();
+		notice.dwStartTs 	= field[1].GetUInt32();
+		notice.dwEndTs		= field[2].GetUInt32();
+
+		uint32 dwCondType	= field[3].GetUInt32();
+		notice.dwPlateFormId= field[4].GetUInt32();
+		notice.dwAutoId		= field[5].GetUInt32();
+
+		if (dwCondType == E_NOTICE_CONDITION_TYPE_SERVER_ID)
+			notice.bIsPlateForm = false;
+		else
+			notice.bIsPlateForm = true;
+
+		vecNotice.push_back(notice);
+
+		result->NextRow();
+	}
+	delete result;
+
+	return true;
 }
 
 uint64 CenterDBCtrl::UpdateRoleToken( uint32 dwRoleId, std::string strToken )
@@ -2689,148 +2029,21 @@ uint64 CenterDBCtrl::UpdateRoleToken( uint32 dwRoleId, std::string strToken )
 		return 0;
 	}
 }
-
-void CenterDBCtrl::GetGoodsInfoOfGameServer( std::map< uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId )
+uint8 CenterDBCtrl::GetGmAuthByPassportId( uint64 ddwPassportId )
 {
-	QueryResult* result = m_db->PQuery(
-		"select goods_id, shop_type, buy_type_id, buy_content_id, buy_count, cost_type_id, cost_content_id, cost_count, cost_count_old,"
-		"status, limit_day, sort_idx, icon_id, goods_name, description, limit_once, limit_time_start, limit_time_end,"
-		"vip_show, vip_buy, buy_count_total, buy_count_inc, platform_goods_id, platform_type, weight, diamond_pay, limit_number, limit_type, prize_float, is_double, buy_ex, ios_goods_id, android_goods_id, currency, good_gift, item_icon, collect_icon,player_level,recharge_rate, extra, old_price from goods_info where server_id=%u", dwGameServerId
-	);
-
-	vGoods.clear();
+	QueryResult* result  = m_db->PQuery( "select gm_auth from passport_info where passport_id=%llu",ddwPassportId  );
+	uint8 byAuthRole = 0;
 	if ( result )
 	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			Field* field = result->Fetch();
-			STC_GOODS_INFO t;
-
-			t.dwGoodsId			= field[0].GetUInt32();
-			t.byShopType		= field[1].GetUInt8();
-			t.dwBuyTypeId		= field[2].GetUInt32();
-			t.dwBuyContentId	= field[3].GetUInt32();
-			t.dwBuyCount		= field[4].GetUInt32();
-			t.dwCostTypeId		= field[5].GetUInt32();
-			t.dwCostContentId	= field[6].GetUInt32();
-			t.dwCostCount		= field[7].GetUInt32();
-			t.dwCostCountOld	= field[8].GetUInt32();
-			t.byStatus			= (GoodsState)field[9].GetUInt8();
-			t.dwLimitDay		= field[10].GetUInt32();
-			t.dwSortIdx			= field[11].GetUInt32();
-			t.dwIconId			= field[12].GetUInt32();
-			t.strName			= field[13].GetString();
-			t.strDescription	= field[14].GetString();
-			t.dwBuyLimitOnce	= field[15].GetUInt32();
-			t.dwLimitTimeStart	= field[16].GetUInt32();
-			t.dwLimitTimeEnd	= field[17].GetUInt32();
-			t.byVipShow			= field[18].GetUInt8();
-			t.byVipBuy			= field[19].GetUInt8();
-			t.dwBuyCountTotal	= field[20].GetUInt32();
-			t.dwBuyCountInc		= field[21].GetUInt32();
-			t.strPlatformGoodsId= field[22].GetString();
-			t.byPlatformType	= field[23].GetUInt8();
-			t.dwWeight			= field[24].GetUInt32();
-			t.dwDiamondPay		= field[25].GetUInt32();
-			t.dwLimitNumber		= field[26].GetCppString();
-			t.dwLimitType		= field[27].GetUInt32();
-			t.dwPrizeFloat		= field[28].GetUInt32();
-			t.byUseRechargeRate	= field[29].GetUInt32();
-			t.buyEx				= field[30].GetCppString();
-
-//			t.IOSGoodId			= field[31].GetCppString();
-//			t.AndroidGoodId		= field[32].GetCppString();
-			t.thirdGoodId		= field[31].GetCppString();
-			t.currency			= field[33].GetCppString();
-			t.goodGift			= field[34].GetUInt32();
-			t.itemIcon			= field[35].GetCppString();
-			t.collectionIcon	= field[36].GetCppString();
-			t.dwPlayerLevel		= field[37].GetUInt32();
-			t.dwRechargeRate 	= field[38].GetUInt32();
-			t.dwExtra 			= field[39].GetCppString();
-			t.dwOldPrice 		= field[40].GetCppString();
-			vGoods.insert( std::make_pair( t.dwGoodsId, t ) );
-			result->NextRow();
-		}
+		byAuthRole = result->Fetch()[0].GetUInt8();
 		delete result;
 	}
-}
-
-void CenterDBCtrl::UpdateGoodsInfoOfGameServerOnly( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId, uint8 byTypeOnly )
-{
-	m_db->PExecute( "delete from goods_info where server_id=%u and shop_type = %u", dwGameServerId, byTypeOnly );
-	UpdateGoodsInfoOfGameServer( vGoods, dwGameServerId );
-}
-
-void CenterDBCtrl::UpdateGoodsInfoOfGameServerExcept( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId, uint8 byTypeEx )
-{
-	m_db->PExecute( "delete from goods_info where server_id=%u and shop_type <> %u", dwGameServerId, byTypeEx );
-	UpdateGoodsInfoOfGameServer( vGoods, dwGameServerId );
-}
-
-void CenterDBCtrl::UpdateGoodsInfoOfGameServerAll( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId )
-{
-	m_db->PExecute( "delete from goods_info where server_id=%u", dwGameServerId );
-	UpdateGoodsInfoOfGameServer( vGoods, dwGameServerId );
-}
-
-void CenterDBCtrl::UpdateGoodsInfoOfGameServer( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId )
-{
-	for ( std::map<uint32, STC_GOODS_INFO>::iterator it = vGoods.begin();
-			it != vGoods.end(); ++it )
+	else
 	{
-		m_db->PExecute( "insert ignore into goods_info(server_id, goods_id, shop_type, buy_type_id, "
-				"buy_content_id, buy_count, cost_type_id, cost_content_id, cost_count, cost_count_old, "
-				"status, limit_day, sort_idx, icon_id, goods_name, description, limit_once, limit_time_start, limit_time_end,"
-				"vip_show, vip_buy, buy_count_total, buy_count_inc, platform_goods_id, platform_type, weight, diamond_pay, limit_number, limit_type, prize_float, is_double, ios_goods_id, android_goods_id, currency, good_gift, item_icon, collect_icon, buy_ex, player_level, recharge_rate, extra, old_price) values(%u, %u, "
-				"%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, '%s', '%s', %d, %u, %u, %u, %u, %u, %u, '%s', %u, %u, %u, '%s', %u, %u, %u, '%s', '%s', '%s', %u, '%s', '%s', '%s', %u,%u, '%s', '%s')",
-				dwGameServerId,
-				it->second.dwGoodsId,
-				it->second.byShopType,
-				it->second.dwBuyTypeId,
-				it->second.dwBuyContentId,
-				it->second.dwBuyCount,
-				it->second.dwCostTypeId,
-				it->second.dwCostContentId,
-				it->second.dwCostCount,
-				it->second.dwCostCountOld,
-				it->second.byStatus,
-				it->second.dwLimitDay,
-				it->second.dwSortIdx,
-				it->second.dwIconId,
-				it->second.strName.c_str(),
-				it->second.strDescription.c_str(),
-				it->second.dwBuyLimitOnce,
-				it->second.dwLimitTimeStart,
-				it->second.dwLimitTimeEnd,
-				it->second.byVipShow,
-				it->second.byVipBuy,
-				it->second.dwBuyCountTotal,
-				it->second.dwBuyCountInc,
-				it->second.strPlatformGoodsId.c_str(),
-				it->second.byPlatformType,
-				it->second.dwWeight,
-				it->second.dwDiamondPay,
-			    it->second.dwLimitNumber.c_str(),
-				it->second.dwLimitType,
-				it->second.dwPrizeFloat, 
-				it->second.byUseRechargeRate,
-				it->second.thirdGoodId.c_str(),
-				it->second.thirdGoodId.c_str(),
-				it->second.currency.c_str(),
-				it->second.goodGift,
-				it->second.itemIcon.c_str(),
-				it->second.collectionIcon.c_str(),
-				it->second.buyEx.c_str(),
-				it->second.dwPlayerLevel,
-				it->second.dwRechargeRate,
-				it->second.dwExtra.c_str(),
-				it->second.dwOldPrice.c_str()
-				);
+		IME_SYSTEM_ERROR( "GetGmAuth", "PassportAuth Not Found, passport_id=%lu", ddwPassportId );
 	}
+	return byAuthRole;
 }
-
 uint8 CenterDBCtrl::GetGmAuth( uint32 dwRoleId )
 {
 	uint8 byAuthRole = 0, byAuthPassport = 0;
@@ -2861,14 +2074,14 @@ uint8 CenterDBCtrl::GetGmAuth( uint32 dwRoleId )
 	return std::max( byAuthRole, byAuthPassport );
 }
 
-uint16 CenterDBCtrl::GetPlatformId( uint32 dwRoleId )
+uint32 CenterDBCtrl::GetPlatformId( uint32 dwRoleId )
 {
 	QueryResult* result = m_db->PQuery( "select platform from passport_info where passport_id="
 			"(select passport_id from re_passport_player where role_id=%u)", dwRoleId );
 
 	if ( result )
 	{
-		uint16 ret = result->Fetch()[0].GetUInt16();
+		uint32 ret = result->Fetch()[0].GetUInt32();
 		delete result;
 
 		return ret;
@@ -2924,6 +2137,21 @@ uint16 CenterDBCtrl::GetRoleServerId( uint32 dwRoleId )
 	return 0;
 }
 
+uint16 CenterDBCtrl::GetRoleServerIdOrigin( uint32 dwRoleId )
+{
+	// get server_id after merged
+	QueryResult* result = m_db->PQuery(
+		"select server_id_origin from re_passport_player where role_id=%u", dwRoleId
+	);
+	if ( result )
+	{
+		uint16 ret = result->Fetch()[0].GetUInt16();
+		delete result;
+		return ret;
+	}
+	return 0;
+}
+
 int CenterDBCtrl::GetRolePlatform( uint32 dwRoleId )
 {
 	QueryResult* result = m_db->PQuery(
@@ -2964,15 +2192,38 @@ uint8 CenterDBCtrl::GetRoleStatus( uint32 dwRoleId )
 	return 0;
 }
 
-uint16 CenterDBCtrl::GetLastLoginServer( uint64 dwPassportId )
+bool CenterDBCtrl::SetRoleLevel( uint32 dwRoleId,uint16 wLevel)
+{
+	return m_db->PExecute(
+		"update re_passport_player set role_level=%u where role_id=%u", wLevel, dwRoleId
+	);
+}
+void CenterDBCtrl::GetRoleLevel(uint64 dwPassportId, std::map<uint32/*serverId*/,uint32/*level*/>& mapServerLevel)
 {
 	QueryResult* result = m_db->PQuery(
-		"select last_login_server from passport_info where passport_id=%llu", dwPassportId
+			"select server_id_origin,role_level from re_passport_player where passport_id=%llu" , dwPassportId
+	);
+	if (result) {
+		int nRows = result->GetRowCount();
+		for (int i = 0; i < nRows; i++) {
+			Field* field = result->Fetch();
+			uint32 server_id = field[0].GetUInt32();
+			uint32 level = field[1].GetUInt32();
+			mapServerLevel[server_id] = level;
+			result->NextRow();
+		}
+	}
+	return;
+}
+uint32 CenterDBCtrl::GetPtrCount( uint32 dwRoleId )
+{
+	QueryResult* result = m_db->PQuery(
+			"select count(*) from passport_info where passport like 'p%d%%'" , dwRoleId
 	);
 
 	if ( result )
 	{
-		uint16 ret = result->Fetch()[0].GetUInt16();
+		uint32 ret = result->Fetch()[0].GetUInt32();
 		delete result;
 		return ret;
 	}
@@ -3000,117 +2251,6 @@ bool CenterDBCtrl::IsTestServer( uint32 dwServerId )
 	return false;
 }
 
-bool CenterDBCtrl::GetGiftCodeInfo( uint32 dwId, uint32& odwParam1, uint32& odwParam2, uint32& odwParam3,
-		std::string& ostrReward, std::string& ostrServers, std::string& ostrPlatform, uint32& odwDeadTime, uint32& odwMaxUse )
-{
-	QueryResult* result = m_db->PQuery(
-		"select param1, param2, param3, reward, server, platform, dead_time, use_max from gift_box_config where id=%u", dwId
-	);
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-
-		odwParam1 	= field[0].GetUInt32();
-		odwParam2 	= field[1].GetUInt32();
-		odwParam3 	= field[2].GetUInt32();
-		ostrReward	= field[3].GetString();
-		ostrServers	= field[4].GetString();
-		ostrPlatform= field[5].GetString();
-		odwDeadTime	= field[6].GetUInt32();
-		odwMaxUse	= field[7].GetUInt32();
-
-		delete result;
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-bool CenterDBCtrl::CheckGiftCodeUsed( uint32 dwId, uint32 dwIdx )
-{
-	QueryResult* result = m_db->PQuery(
-		"select * from gift_box where id=%u and idx=%u", dwId, dwIdx );
-
-	if ( result )
-	{
-		delete result;
-		return true;
-	}
-	return false;
-}
-
-uint32 CenterDBCtrl::GetGiftCodeSameTypeUsed( uint32 dwRoleId, uint32 dwId )
-{
-	QueryResult* result = m_db->PQuery(
-		"select * from gift_box where id=%u and role_id=%u", dwId, dwRoleId );
-	if ( result )
-	{
-		uint32 ret = result->GetRowCount();
-		delete result;
-		return ret;
-	}
-	return 0;
-}
-
-bool CenterDBCtrl::InsertGiftCodeUse( uint32 dwRoleId, uint32 dwId, uint32 dwIdx )
-{
-	return m_db->PExecute( "insert into gift_box( id, idx, role_id ) values( %u, %u, %u )",
-			dwId, dwIdx, dwRoleId );
-}
-
-bool CenterDBCtrl::InsertInviteInfo( uint32 dwRoleId, uint32 dwLevel, uint32 dwInviterId )
-{
-	return m_db->PExecute( "insert into invite_info( role_id, level, inviter_id ) values( %u, %u, %u )",
-			dwRoleId, dwLevel, dwInviterId );
-}
-
-bool CenterDBCtrl::UpdateInviteLevel( uint32 dwRoleId, uint32 dwLevel )
-{
-	return m_db->PExecute( "update invite_info set level=%u where role_id=%u", dwLevel, dwRoleId );
-}
-
-bool CenterDBCtrl::GetInviteLevelList( uint32 dwRoleId, std::vector<uint32>& vLevel, std::vector<uint32>& vId )
-{
-	vLevel.clear();
-	QueryResult* result = m_db->PQuery("select role_id, level from invite_info where inviter_id=%u", dwRoleId );
-
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			Field* field = result->Fetch();
-
-			uint32 dwId		= field[0].GetUInt32();
-			uint32 dwLevel 	= field[1].GetUInt32();
-
-			vId.push_back( dwId );
-			vLevel.push_back( dwLevel );
-
-			result->NextRow();
-		}
-
-		delete result;
-	}
-
-	return true;
-}
-
-uint32 CenterDBCtrl::GetInviterId( uint32 dwRoleId )
-{
-	QueryResult* result = m_db->PQuery("select inviter_id from invite_info where role_id=%u", dwRoleId );
-
-	if ( result )
-	{
-		uint32 ret = result->Fetch()[0].GetUInt32();
-		delete result;
-		return ret;
-	}
-	return 0;
-}
 
 uint8 CenterDBCtrl::BindPassport( uint32 dwRoleId, LoginAuthType eAuthType, std::string strPassport,
 			std::string strPassword, std::string strMail )
@@ -3125,17 +2265,14 @@ uint8 CenterDBCtrl::BindPassport( uint32 dwRoleId, LoginAuthType eAuthType, std:
 	if ( dwPassportId == 0 )
 		return E_LOGIN_BIND_RESULT_TYPE_PASSPORT_NOT_EXIST;
 
-	uint16 wPlatformId;
-	std::string strOldPlatformId;
-	uint8 byGmAuth;
-
-	GetPassportInfo( dwPassportId, wPlatformId, strOldPlatformId, byGmAuth );
+	STC_PASSPORT_INFO stcInfo;
+	GetPassportInfo( dwPassportId, stcInfo );
 
 	m_db->escape_string( strPassport );
 	m_db->escape_string( strMail );
 
 	QueryResult* result = m_db->PQuery( "select passport_id from passport_info where auth_type=%u and platform=%u and passport='%s'",
-			(uint8)eAuthType, wPlatformId, strPassport.c_str() );
+			(uint8)eAuthType, stcInfo.dwPlatform, strPassport.c_str() );
 
 	if ( result )
 	{
@@ -3169,14 +2306,6 @@ uint8 CenterDBCtrl::BindPassport( uint32 dwRoleId, LoginAuthType eAuthType, std:
 	}
 }
 
-void CenterDBCtrl::AddActivityStat( uint32 dwActivityId, uint32 dwType, uint32 dwRoleId, uint32 dwReachIdx, uint32 dwReachTime )
-{
-	m_db->PExecute(
-		"insert into active_stat( active_id, active_type, role_id, reach_idx, reach_time ) values( %u, %u, %u, %u, %u )",
-		dwActivityId, dwType, dwRoleId, dwReachIdx, dwReachTime
-	);
-}
-
 uint32 CenterDBCtrl::RegisterGuild( uint32 dwRoleId )
 {
 	if ( !m_db->PExecute(
@@ -3201,239 +2330,6 @@ uint32 CenterDBCtrl::RegisterGuild( uint32 dwRoleId )
 		IME_SQLERROR("Error When Insert Guild Reg");
 		return 0;
 	}
-}
-
-bool CenterDBCtrl::GetPlayerBlobShare( ByteBuffer& buf, uint32 accountId, const char* field )
-{
-	QueryResult* result = m_db->PQuery(
-		"select %s from player_blob_share where role_id=%u",
-		field, accountId
-	);
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-
-		buf.clear();
-		buf.append( field[0].GetString(), field[0].GetLength() );
-
-		delete result;
-
-		return true;
-	}
-	else
-	{
-		IME_SQLERROR( "GetPlayerBlobShareError, id=%u, field=%s", accountId, field );
-	}
-	return false;
-}
-
-bool CenterDBCtrl::SetPlayerBlobShare( ByteBuffer& buf, uint32 accountId, const char* field )
-{
-	std::string str;
-	str.append( (const char*)buf.contents(), buf.size() );
-	m_db->escape_string( str );
-
-	QueryResult* result = m_db->PQuery("select role_id from player_blob_share where role_id=%u", accountId );
-	if ( result )
-	{
-		delete result;
-	}
-	else
-	{
-		m_db->PExecute( "insert into player_blob_share (role_id) values(%u)", accountId );
-	}
-
-	bool ret = m_db->PExecute(
-		"update player_blob_share set %s='%s' where role_id=%u",
-		field, str.c_str(), accountId
-	);
-
-	if ( !ret )
-	{
-		IME_SQLERROR( "SetPlayerBlobShareError, id=%u, field=%s", accountId, field );
-		return false;
-	}
-	return true;
-}
-
-//worldDatabase.PExecute(
-//		"CREATE TABLE IF NOT EXISTS player_blob_share ("
-//			"role_id		BIGINT(20) UNSIGNED NOT NULL,"
-//			"server_id		INT	UNSIGNED NOT NULL DEFAULT 0,"
-//			"name			VARCHAR(32)	CHARACTER SET utf8 NOT NULL,"
-//			"level			INT UNSIGNED NOT NULL DEFAULT 0,"
-//			"cap_hero_id	INT UNSIGNED NOT NULL DEFAULT 0,"
-//			"achieve		blob		NULL,"
-//			"battle_hero	blob		NULL,"
-//			"photo			blob		NULL,"
-//			"tech			blob		NULL,"
-//			"quest			blob		NULL,"
-//			"buff			blob		NULL,"
-//			"explore		blob		NULL,"
-//			"win_cnt		INT	UNSIGNED NOT NULL DEFAULT 0,"
-//			"combat			INT UNSIGNED NOT NULL DEFAULT 0,"
-//			"PRIMARY KEY(account_id)"
-//		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-//	);
-
-bool CenterDBCtrl::GetPlayerInfoShareAll( std::vector<STC_WORLD_BATTLE_SHARE>& vRoles, uint32 dwServerId )
-{
-	QueryResult* result = NULL;
-
-	uint32 dwTime = GetDBTime();
-	if ( dwTime == 0 ) return false;
-
-	// fetch only active player ( update in a week )
-	dwTime -= 60 * 60 * 24 * 7;
-
-	if ( IsTestServer( dwServerId ) )
-	{
-		result = m_db->PQuery( "select role_id, b.server_id, b.version, b.server_name, name, level, cap_hero_id, win_cnt, combat, a.update_time from "
-			"player_blob_share a inner join gameserver_info b on a.server_id = b.server_id where a.update_time > %u", dwTime );
-	}
-	else
-	{
-		result = m_db->PQuery( "select role_id, b.server_id, b.version, b.server_name, name, level, cap_hero_id, win_cnt, combat, a.update_time from "
-			"player_blob_share a inner join gameserver_info b on a.server_id = b.server_id where b.is_test=0 and a.update_time > %u", dwTime );
-	}
-
-	vRoles.clear();
-
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			Field* field = result->Fetch();
-
-			STC_WORLD_BATTLE_SHARE t;
-			t.dwRoleId		= field[0].GetUInt32();
-			t.dwServerId	= field[1].GetUInt32();
-			t.strServerVer	= field[2].GetString();
-			t.strServerName	= field[3].GetString();
-			t.strName		= field[4].GetString();
-			t.dwLevel		= field[5].GetUInt32();
-			t.dwCapHeroId	= field[6].GetUInt32();
-			t.dwWinCnt		= field[7].GetUInt32();
-			t.dwCombat		= field[8].GetUInt32();
-			t.dwUpdateTime	= field[9].GetUInt32();
-
-			vRoles.push_back( t );
-			result->NextRow();
-		}
-
-		delete result;
-	}
-
-	return true;
-}
-
-bool CenterDBCtrl::SetPlayerInfoShare( uint32 dwRoleId, uint32 dwServerId, const char* strName, uint32 dwLevel, uint32 dwCapHeroId,
-		uint32 dwWinCnt, uint32 dwCombat )
-{
-	QueryResult* result = m_db->PQuery("select role_id from player_blob_share where role_id=%u", dwRoleId );
-	if ( result )
-	{
-		delete result;
-	}
-	else
-	{
-		m_db->PExecute( "insert into player_blob_share (role_id) values(%u)", dwRoleId );
-	}
-
-	std::string strNameEs = strName;
-	m_db->escape_string( strNameEs );
-
-	return m_db->PExecute("update player_blob_share set server_id=%u, name='%s', level=%u, cap_hero_id=%u,"
-			"win_cnt=%u, combat=%u, update_time=%u where role_id=%u", dwServerId, strNameEs.c_str(), dwLevel,
-			dwCapHeroId, dwWinCnt, dwCombat, GetDBTime(), dwRoleId );
-}
-
-//m_db->PExecute(
-//		"CREATE TABLE IF NOT EXISTS player_rank ("
-//			"server_id		INT			UNSIGNED NOT NULL DEFAULT 0,"
-//			"rank_type		TINYINT		UNSIGNED NOT NULL DEFAULT 0,"
-//			"rank			MEDIUMINT	UNSIGNED NOT NULL DEFAULT 0,"
-//			"role_name		VARCHAR(32)	CHARACTER SET utf8 NOT NULL,"
-//			"rank_value		INT			UNSIGNED NOT NULL DEFAULT 0,"
-//			"PRIMARY KEY( server_id, rank_type, rank )"
-//		")ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-//	);
-
-bool CenterDBCtrl::InsertOrUpdatePlayerRank( uint32 dwServerId, uint8 byRankType, uint32 dwRank, std::string strName, uint32 dwValue )
-{
-	m_db->escape_string( strName );
-
-	QueryResult* result = m_db->PQuery("select * from player_rank where server_id=%u and rank_type=%u and rank=%u",
-			dwServerId, byRankType, dwRank );
-
-	if ( result )
-	{
-		delete result;
-		return m_db->PExecute( "update player_rank set role_name='%s', rank_value=%u where server_id=%u and rank_type=%u and rank=%u",
-				strName.c_str(), dwValue, dwServerId, byRankType, dwRank );
-	}
-	else
-	{
-		return m_db->PExecute( "insert into player_rank( server_id, rank_type, rank, role_name, rank_value ) values( %u, %u, %u, '%s', %u )",
-				dwServerId, byRankType, dwRank, strName.c_str(), dwValue );
-	}
-}
-
-bool CenterDBCtrl::GetCDKEYAndVerify(STC_CDKEY &t)
-{
-	std::string cdkey = t.strCDkey;
-	m_db->escape_string(cdkey);
-	QueryResult* result = m_db->PQuery(
-		"select cdkey, channel, start_time, end_time, limit_number, prize, status, batch_id "
-		" from cdkey_generate_batch,cdkey_list where cdkey_list.batch_id=cdkey_generate_batch.auto_id and cdkey = '%s'", cdkey.c_str()
-	);
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-
-		t.strCDkey			= field[0].GetCppString();
-		t.dwChannel			= field[1].GetUInt32();
-		t.dwStartTime		= field[2].GetUInt32();
-		t.dwEndTime			= field[3].GetUInt32();
-		t.dwLimitNumber		= field[4].GetUInt32();
-		t.strPrize			= field[5].GetCppString();
-		t.byStatus			= field[6].GetUInt8();
-		t.dwBatchId			= field[7].GetUInt32();
-		return true;
-	}
-	delete result;
-	return false;
-}
-
-int CenterDBCtrl::GetCount(uint32 batch_id, uint32 characterid, uint32 channel)
-{
-//	m_db->escape_string(cdkey);
-	QueryResult* result = m_db->PQuery(
-		"select count(*) "
-		" from cdkey_list where batch_id=%u and get_characterid = %u", batch_id, characterid
-	);
-
-	if ( result )
-	{
-		Field* field = result->Fetch();
-
-		int number = field[0].GetInt32();
-		return number;
-	}
-	delete result;
-	return -1;
-}
-
-bool CenterDBCtrl::UpdateCDKEY(std::string cdkey, uint32 characterid)
-{
-	m_db->escape_string(cdkey);
-	return m_db->PExecute(
-		"update cdkey_list "
-		"set get_characterid = %u, status = 1 where cdkey = '%s'", characterid, cdkey.c_str()
-	);
 }
 
 bool CenterDBCtrl::InitGmCommand()
@@ -3488,6 +2384,10 @@ bool CenterDBCtrl::UpdateGmCommand()
 			it != m_mapGmCommandAll.end(); it++ )
 	{
 		GmCommand* cmd = it->second;
+		if (cmd->GetStartTime() == 0)
+			cmd->SetStartTime(dwTime);
+		if (cmd->GetEndTime() < cmd->GetStartTime())
+			cmd->SetEndTime(cmd->GetStartTime());
 
 		do
 		{
@@ -3547,7 +2447,7 @@ bool CenterDBCtrl::UpdateGmCommand()
 		if ( cmd->Dirty() )
 		{
 			if ( !m_db->PExecute(
-				"update gm_cmd set opr='%s', target_type=%u, target_id=%u, start_time=%u, end_time=%u, "
+				"update gm_cmd set opr='%s', target_type=%u, target_id=%llu, start_time=%u, end_time=%u, "
 				"backup_value='%s', status=%u where auto_id=%u",
 				cmd->GetOpr().c_str(), cmd->GetTargetType(), cmd->GetTargetId(), cmd->GetStartTime(), cmd->GetEndTime(),
 				cmd->GetBackup().c_str(),  cmd->GetStatus(), cmd->GetAutoId()
@@ -3560,15 +2460,14 @@ bool CenterDBCtrl::UpdateGmCommand()
 			{
 				IME_SYSTEM_LOG( "GmCommand", "GM Command Error, id=%d, opr=%s, msg=%s",
 						cmd->GetAutoId(), cmd->GetOpr().c_str(), cmd->GetErrorMsg().c_str() );
+			}
+			std::string strErrorMsg = cmd->GetErrorMsg();
+			m_db->escape_string( strErrorMsg );
 
-				std::string strErrorMsg = cmd->GetErrorMsg();
-				m_db->escape_string( strErrorMsg );
-
-				if ( !m_db->PExecute("update gm_cmd set error_msg='%s' where auto_id=%u",
+			if ( !m_db->PExecute("update gm_cmd set error_msg='%s' where auto_id=%u",
 						strErrorMsg.c_str(), cmd->GetAutoId() ) )
-				{
-					IME_SQLERROR( "Error Update ErrorMsg in 'gm_cmd', id=%u", cmd->GetAutoId() );
-				}
+			{
+				IME_SQLERROR( "Error Update ErrorMsg in 'gm_cmd', id=%u", cmd->GetAutoId() );
 			}
 		}
 
@@ -3678,7 +2577,6 @@ void CenterDBCtrl::ReadCommands( QueryResult* result )
 		std::string strBackup	= field[6].GetString();
 		uint8		byStatus	= field[7].GetUInt8();
 		std::string strParams	= field[8].GetTextString();
-
 		m_dwMaxHandledGmCommandId = std::max( m_dwMaxHandledGmCommandId, dwAutoId );
 
 		// check if this game server should handle this command
@@ -3719,20 +2617,89 @@ bool CenterDBCtrl::RemoveGmCommand( GmCommand* pCommand )
 	return true;
 }
 
-void CenterDBCtrl::CreateLoginToken( uint64 ddwPassportId, std::string strIp )
+void CenterDBCtrl::InsertOrUpdateGoodsInfo( STC_GOODS_INFO& stcGood, uint32 dwGameServerId )
 {
-	m_db->PExecute( "update passport_info set token_ip='%s', token_time=%u where passport_id=%llu",
-			strIp.c_str(), GetDBTime(), ddwPassportId );
+    m_db->PExecute("insert into goods_info(server_id, goods_id, shop_type, buy_type_id, "
+            "buy_content_id, buy_count, cost_type_id, cost_content_id, cost_count, cost_count_old, "
+            "status, limit_day, sort_idx ) values (%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u)  "
+            " on duplicate key update shop_type=%u, buy_type_id=%u,buy_content_id=%u,buy_count=%u,"
+            "cost_type_id=%u,cost_content_id=%u, cost_count=%u, cost_count_old=%u, status=%u,limit_day=%u,sort_idx=%u  ",
+            dwGameServerId,
+            stcGood.dwGoodsId,
+            stcGood.byShopType,
+            stcGood.dwBuyTypeId,
+            stcGood.dwBuyContentId,
+            stcGood.dwBuyCount,
+            stcGood.dwCostTypeId,
+            stcGood.dwCostContentId,
+            stcGood.dwCostCount,
+            stcGood.dwCostCountOld,
+            stcGood.byStatus,
+            stcGood.dwLimitDay,
+            stcGood.dwSortIdx,
+
+            dwGameServerId,
+            stcGood.dwGoodsId,
+            stcGood.byShopType,
+            stcGood.dwBuyTypeId,
+            stcGood.dwBuyContentId,
+            stcGood.dwBuyCount,
+            stcGood.dwCostTypeId,
+            stcGood.dwCostContentId,
+            stcGood.dwCostCount,
+            stcGood.dwCostCountOld,
+            stcGood.byStatus,
+            stcGood.dwLimitDay,
+            stcGood.dwSortIdx
+    );
 }
 
-void CenterDBCtrl::CreateLoginTokenByRoleId( uint64 roleId, uint32 time)
+void CenterDBCtrl::UpdateGoodsInfoOfGameServer( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId )
 {
-	m_db->PExecute( "update passport_info set token_time=%u where passport_id=(select passport_id from re_passport_player where role_id = %llu)",
-			GetDBTime() + time, roleId );
+	for ( std::map<uint32, STC_GOODS_INFO>::iterator it = vGoods.begin();
+			it != vGoods.end(); ++it )
+	{
+		m_db->PExecute( "insert into goods_info(server_id, goods_id, shop_type, buy_type_id, "
+				"buy_content_id, buy_count, cost_type_id, cost_content_id, cost_count, cost_count_old, "
+				"status, limit_day, sort_idx, icon_id, goods_name, description, platform_goods_id, platform_type,"
+				"discount, role_lv_req, bonus_buy_count, bonus_limit, bonus_reset_type, diamond_pay ) "
+				"values(%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, '%s', '%s', '%s', '%s', %u, %u, %u, %u, %u, %u, %u)",
+				dwGameServerId,
+				it->second.dwGoodsId,
+				it->second.byShopType,
+				it->second.dwBuyTypeId,
+				it->second.dwBuyContentId,
+				it->second.dwBuyCount,
+				it->second.dwCostTypeId,
+				it->second.dwCostContentId,
+				it->second.dwCostCount,
+				it->second.dwCostCountOld,
+				it->second.byStatus,
+				it->second.dwLimitDay,
+				it->second.dwSortIdx,
+				it->second.strIcon.c_str(),
+				it->second.strName.c_str(),
+				it->second.strDescription.c_str(),
+				it->second.strPlatformGoodsId.c_str(),
+				it->second.dwPlatformType,
+				it->second.dwDiscount,
+				it->second.wRoleLvReq,
+				it->second.dwBonusBuyCount,
+				it->second.dwBonusLimit,
+				it->second.byBonusResetType,
+				it->second.dwDiamondPay );
+	}
+}
+
+void CenterDBCtrl::CreateLoginToken( uint64 ddwPassportId, std::string strIp,bool bIsShadowLogin/*不记录留存*/ )
+{
+	m_db->PExecute( "update passport_info set token_ip='%s', token_time=%u, shadow_login=%u where passport_id=%llu",
+			strIp.c_str(), GetDBTime(),bIsShadowLogin, ddwPassportId);
 }
 
 void CenterDBCtrl::ClearLoginToken( uint32 dwRoleId )
 {
+
 	m_db->PExecute( "update passport_info set token_ip='', token_time=0 where passport_id=%llu", GetPassportId( dwRoleId ) );
 }
 
@@ -3766,41 +2733,8 @@ static bool CheckIp( std::string strIp, std::string strPattern )
 	}
 	return true;
 }
-bool CenterDBCtrl::CheckWhiteIP(std::string strIp)
-{
-	std::string strError = "Timeout";
-	QueryResult* result = m_db->PQuery( "select value from login_strategy where strategy_id=255 and type=%u",
-			E_LOGIN_STRATEGY_TYPE_IP );
-	if ( result == NULL )
-	{
-		IME_ERROR( "CheckLoginToken ip %s %s", strIp.c_str(), strError.c_str() );
-		return false;
-	}
 
-	int cnt = result->GetRowCount();
-	bool bIpInWhite = false;
-
-	for ( int i = 0; i < cnt; i++ )
-	{
-		if ( CheckIp( strIp, result->Fetch()[0].GetString() ) )
-		{
-			bIpInWhite = true;
-			break;
-		}
-		result->NextRow();
-	}
-
-	delete result;
-
-	if ( bIpInWhite )
-	{
-		IME_LOG( "CheckLoginToken Success, IP In White List" );
-		return true;
-	}
-	return false;
-}
-
-bool CenterDBCtrl::CheckLoginToken( uint32 dwRoleId, std::string strIp, bool &isWhite )
+bool CenterDBCtrl::CheckLoginToken( uint32 dwRoleId, std::string strIp,bool& bIsShadowLogin )
 {
 	uint64 ddwPassportId = GetPassportId( dwRoleId );
 	if ( ddwPassportId == 0 )
@@ -3809,7 +2743,7 @@ bool CenterDBCtrl::CheckLoginToken( uint32 dwRoleId, std::string strIp, bool &is
 		return false;
 	}
 
-	QueryResult* result = m_db->PQuery( "select token_ip, token_time from passport_info where passport_id=%llu",
+	QueryResult* result = m_db->PQuery( "select token_ip, token_time,shadow_login from passport_info where passport_id=%llu",
 			ddwPassportId );
 
 	if ( result )
@@ -3818,12 +2752,12 @@ bool CenterDBCtrl::CheckLoginToken( uint32 dwRoleId, std::string strIp, bool &is
 
 		std::string strLoginIp 	= field[0].GetString();
 		uint32		dwLoginTime	= field[1].GetUInt32();
+		bIsShadowLogin	= field[2].GetUInt8();
 
 		delete result;
 
-		if ( GetDBTime() < dwLoginTime + 300 )
+		if ( GetDBTime() < dwLoginTime + DAY )
 		{
-			isWhite = false;
 			IME_USER_LOG( "CheckLoginToken", dwRoleId, "Success" );
 			return true;
 		}
@@ -3856,7 +2790,6 @@ bool CenterDBCtrl::CheckLoginToken( uint32 dwRoleId, std::string strIp, bool &is
 
 			if ( bIpInWhite )
 			{
-				isWhite = true;
 				IME_USER_LOG( "CheckLoginToken", dwRoleId, "Success, IP In White List" );
 				return true;
 			}
@@ -3870,6 +2803,139 @@ bool CenterDBCtrl::CheckLoginToken( uint32 dwRoleId, std::string strIp, bool &is
 		IME_USER_ERROR( "CheckLoginToken", dwRoleId, "Token Not Found" );
 		return false;
 	}
+	return false;
+}
+
+bool CenterDBCtrl::GetGiftCodeInfo( uint32 dwId, uint32& odwParam1, uint32& odwParam2, uint32& odwParam3,
+		std::string& ostrReward, std::string& ostrServers, std::string& ostrPlatform, uint32& odwDeadTime,
+		uint32& odwMaxUse, uint32& odwEveryUse )
+{
+	QueryResult* result = m_db->PQuery(
+		"select param1, param2, param3, reward, server, platform, dead_time, use_max, use_every from gift_box_config where id=%u", dwId
+	);
+
+	if ( result )
+	{
+		Field* field = result->Fetch();
+
+		odwParam1 	= field[0].GetUInt32();
+		odwParam2 	= field[1].GetUInt32();
+		odwParam3 	= field[2].GetUInt32();
+		ostrReward	= field[3].GetString();
+		ostrServers	= field[4].GetString();
+		ostrPlatform= field[5].GetString();
+		odwDeadTime	= field[6].GetUInt32();
+		odwMaxUse	= field[7].GetUInt32();
+		odwEveryUse = field[8].GetUInt32();
+
+		delete result;
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+uint32 CenterDBCtrl::GetGiftCodeUsed( uint32 dwId, uint32 dwIdx )
+{
+	QueryResult* result = m_db->PQuery(
+		"select count(1) from gift_box where id=%u and idx=%u", dwId, dwIdx );
+
+	if ( result )
+	{
+		uint32 ret = result->Fetch()[0].GetUInt32();
+		delete result;
+		return ret;
+	}
+	return 0;
+}
+
+uint32 CenterDBCtrl::GetGiftCodeUsed( uint64 ddwRoleId, uint32 dwId, uint32 dwIdx )
+{
+    QueryResult* result = m_db->PQuery(
+            "select * from gift_box where id=%u and idx=%u and role_id=%llu", dwId, dwIdx, ddwRoleId );
+    if ( result )
+    {
+        return 1;
+    }
+    return 0;
+}
+
+uint32 CenterDBCtrl::GetGiftCodeSameTypeUsed( uint64 dwRoleId, uint32 dwId )
+{
+	QueryResult* result = m_db->PQuery(
+		"select * from gift_box where id=%u and role_id=%llu", dwId, dwRoleId );
+	if ( result )
+	{
+		uint32 ret = result->GetRowCount();
+		delete result;
+		return ret;
+	}
+	return 0;
+}
+
+bool CenterDBCtrl::InsertGiftCodeUse( uint64 dwRoleId, uint32 dwId, uint32 dwIdx )
+{
+	return m_db->PExecute( "insert into gift_box( id, idx, role_id, use_time ) values( %u, %u, %llu, %u )",
+			dwId, dwIdx, dwRoleId, GetDBTime() );
+}
+
+void CenterDBCtrl::GetGoodsInfoOfGameServer( std::map< uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId )
+{
+	QueryResult* result = m_db->PQuery(
+		"select goods_id, shop_type, buy_type_id, buy_content_id, buy_count, cost_type_id, cost_content_id, cost_count, cost_count_old,"
+		"status, limit_day, sort_idx, icon_id, goods_name, description, platform_goods_id, platform_type, discount, role_lv_req,"
+		"bonus_buy_count, bonus_limit, bonus_reset_type, diamond_pay "
+		"from goods_info where server_id=%u", dwGameServerId
+	);
+
+	vGoods.clear();
+	if ( result )
+	{
+		uint64 cnt = result->GetRowCount();
+		for (unsigned int i = 0; i < cnt; i++ )
+		{
+			Field* field = result->Fetch();
+			STC_GOODS_INFO t;
+
+			int idx = 0;
+
+			t.dwGoodsId			= field[idx++].GetUInt32();
+			t.byShopType		= field[idx++].GetUInt8();
+			t.dwBuyTypeId		= field[idx++].GetUInt32();
+			t.dwBuyContentId	= field[idx++].GetUInt32();
+			t.dwBuyCount		= field[idx++].GetUInt32();
+			t.dwCostTypeId		= field[idx++].GetUInt32();
+			t.dwCostContentId	= field[idx++].GetUInt32();
+			t.dwCostCount		= field[idx++].GetUInt32();
+			t.dwCostCountOld	= field[idx++].GetUInt32();
+			t.byStatus			= (GoodsState)field[idx++].GetUInt8();
+			t.dwLimitDay		= field[idx++].GetUInt32();
+			t.dwSortIdx			= field[idx++].GetUInt32();
+			t.strIcon			= field[idx++].GetString();
+			t.strName			= field[idx++].GetString();
+			t.strDescription	= field[idx++].GetString();
+			t.strPlatformGoodsId= field[idx++].GetString();
+			t.dwPlatformType	= field[idx++].GetUInt32();
+			t.dwDiscount		= field[idx++].GetUInt32();
+			t.wRoleLvReq		= field[idx++].GetInt16();
+			t.dwBonusBuyCount	= field[idx++].GetUInt32();
+			t.dwBonusLimit		= field[idx++].GetUInt32();
+			t.byBonusResetType	= field[idx++].GetUInt8();
+			t.dwDiamondPay		= field[idx++].GetUInt32();
+
+			vGoods.insert( std::make_pair( t.dwGoodsId, t ) );
+			result->NextRow();
+		}
+		delete result;
+	}
+}
+
+void CenterDBCtrl::UpdateGoodsInfoOfGameServerAll( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId )
+{
+	m_db->PExecute( "delete from goods_info where server_id=%u", dwGameServerId );
+	UpdateGoodsInfoOfGameServer( vGoods, dwGameServerId );
 }
 
 bool CenterDBCtrl::GetServerName( uint32 dwServerId, std::string &strServerName)
@@ -3888,196 +2954,45 @@ bool CenterDBCtrl::GetServerName( uint32 dwServerId, std::string &strServerName)
 		return false;
 	}
 }
-bool CenterDBCtrl::GetServerIdAndName(std::map<uint32, std::string>& out)
+
+
+bool CenterDBCtrl::GetServerLocalIp( uint32 dwServerId, std::string &strIp )
 {
-	QueryResult* result = m_db->PQuery( "select server_id, server_name from gameserver_info");
-	if (result)
-	{
-		uint64_t cnt = result->GetRowCount();
+    QueryResult* res = m_db->PQuery( "select local_ip from gameserver_info where server_id=%u", dwServerId);
 
-		for (uint64 i = 0; i < cnt; ++i)
-		{
-			Field* field = result->Fetch();
+    if ( res )
+    {
+        strIp = res->Fetch()[0].GetString();
+        delete res;
 
-			uint32 id = field[0].GetUInt32();
-			std::string name = field[1].GetCppString();
-
-			out[id] = name;
-
-			result->NextRow();
-		}
-		return true;
-	}
-	return false;
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
-
-
-bool CenterDBCtrl::GetUserBetweenLoginTime(uint32 dwServerId, uint32 dwBeginTime, uint32 dwEndTime, std::vector<uint32> &vecAccount)
+bool CenterDBCtrl::GetServerDbName( uint32 dwServerId, std::string &strDbName)
 {
-	if(dwBeginTime > dwEndTime)
-	{
-		return false;
-	}
+    QueryResult* res = m_db->PQuery( "select db_name from gameserver_info where server_id=%u", dwServerId);
 
-	QueryResult* result = m_db->PQuery(
-		"select a.role_id from player_info a inner join re_passport_player b on(a.role_id = b.role_id ) where a.last_login_time >= %u and a.last_login_time <= %u and b.server_id=%u",
-		dwBeginTime, dwEndTime, dwServerId
-	);
+    if ( res )
+    {
+        strDbName = res->Fetch()[0].GetString();
+        delete res;
 
-	vecAccount.clear();
-
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			uint32 dwAccountdId;
-			Field* field = result->Fetch();
-
-			dwAccountdId = field[0].GetUInt32();
-			vecAccount.push_back( dwAccountdId );
-
-			result->NextRow();
-		}
-
-		delete result;
-	}
-
-	return true;
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
-bool CenterDBCtrl::GetHeroBegsInfo(uint32 dwRoleId, std::string &strBegsInfo)
+bool CenterDBCtrl::UpdateServerIsTest( uint32 dwServerId, uint32 dwIsTest )
 {
-	strBegsInfo = "";
-	QueryResult* result = m_db->PQuery("select herobag from player_detail where role_id=%u", dwRoleId);
-	if (result) {
-		uint64 u64Cnt = result->GetRowCount();
-		if (1 != u64Cnt) {
-
-			IME_SQLERROR( "error select herobag from player_detail by roleId=%u", dwRoleId );
-			return false;
-		} else {
-
-			Field *fields = NULL;
-			fields = result->Fetch();
-			if (NULL != fields) {
-				if (NULL != fields[0].GetString()) {
-
-					strBegsInfo.append(fields[0].GetString());
-				}
-			}
-			return true;
-		}
-	}
-	return false;
-}
-
-bool CenterDBCtrl::SetPlayerDetailInfo(uint32 dwRoleId, std::string colum, std::string &buf)
-{
-	QueryResult* result = m_db->PQuery( "select role_id from player_detail where role_id=%u", dwRoleId );
-
-	m_db->escape_string(buf);
-
-	if ( result )
-	{
-		delete result;
-
-		return m_db->PExecute( "update player_detail set %s='%s' where role_id=%u", colum.c_str(), buf.c_str(), dwRoleId );
-	}
-	else
-	{
-		return m_db->PExecute( "insert into player_detail(role_id, %s) values(%u, '%s')", colum.c_str(), dwRoleId, buf.c_str() );
-	}
-
-	return true;
-}
-
-bool CenterDBCtrl::SetExchangeRecordInfo(uint32 dwRoleId, uint32 dwGoodId, uint32 dwGoodNum, uint32 dwTime, uint32 dwValue)
-{
-	QueryResult* result = m_db->PQuery(
-			"select goods_quantity from exchange_record where role_id=%u and goods_id=%u and time=%u ", dwRoleId, dwGoodId, dwTime
-		);
-
-	// 今天的存过
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		if(cnt > 1)
-		{
-			return false;
-		}
-
-		Field* field = result->Fetch();
-		uint32 dwNum = field[0].GetUInt32();
-
-		delete result;
-
-		return m_db->PExecute( "update exchange_record set goods_quantity=%u where role_id=%u and goods_id=%u and time=%u",
-				dwNum + dwGoodNum, dwRoleId, dwGoodId, dwTime);
-	}
-	// 还没有
-	else
-	{
-		return m_db->PExecute( "insert into exchange_record(role_id, goods_id, goods_quantity, value, time) values(%u, %u, %u, %u, %u)",
-				dwRoleId, dwGoodId, dwGoodNum, dwValue, dwTime);
-	}
-}
-void CenterDBCtrl::UpdateActivityConf( std::map<uint32, STC_ACTIVITY_CONF>& vActs, uint32 dwGameServerId )
-{
-	for (std::map<uint32, STC_ACTIVITY_CONF>::iterator iter = vActs.begin(); iter != vActs.end(); ++iter)
-	{
-		STC_ACTIVITY_CONF& conf = iter->second;
-		m_db->escape_string(conf.type);
-		m_db->escape_string(conf.name);
-		m_db->escape_string(conf.detail);
-		m_db->PQuery("replace into activity values(%d, %d, '%s', '%s', FROM_UNIXTIME(%d),FROM_UNIXTIME(%d), '%s')",
-				dwGameServerId, conf.id, conf.type.c_str(), conf.name.c_str(), conf.begintime, conf.endtime, conf.detail.c_str());
-	}
-}
-void CenterDBCtrl::DeleteActivityConf(std::string ids_str, uint32 dwGameServerId)
-{
-	m_db->PQuery("DELETE FROM activity WHERE server_id=%d and id IN(%s);",dwGameServerId, ids_str.c_str());
-}
-void CenterDBCtrl::ClearActivityConf(uint32 dwGameServerId)
-{
-	m_db->PQuery("DELETE FROM activity WHERE server_id=%d;",dwGameServerId);
-}
-
-void CenterDBCtrl::GetShareInfo(std::vector<STC_SHAREINFO_CONF>& vShareInfo)
-{
-	static uint32 s_last_id = 0;
-	QueryResult* result = m_db->PQuery(
-			"select id, role_id, inviter_id, type, istest, unix_timestamp(inviter_time) as t1, unix_timestamp(gift_time) as t2 from share_info where id >%d and type > 0 limit 100", s_last_id);
-	if ( result )
-	{
-		uint64 cnt = result->GetRowCount();
-		for (unsigned int i = 0; i < cnt; i++ )
-		{
-			Field* field = result->Fetch();
-
-			STC_SHAREINFO_CONF conf;
-			conf.id = field[0].GetUInt32();
-			conf.role_id = field[1].GetUInt64();
-			conf.inviter_id = field[2].GetUInt64();
-			conf.type = field[3].GetUInt32();
-			conf.istest = field[4].GetUInt32() > 0;
-			conf.inviter_time = field[5].GetUInt32();
-			conf.gift_time = field[6].GetUInt32();
-
-			vShareInfo.push_back(conf);
-
-			if (conf.id > s_last_id)
-				s_last_id = conf.id;
-
-			result->NextRow();
-		}
-		delete result;
-	}
-}
-void CenterDBCtrl::UpdateShareInfo(uint32 id, uint32 type)
-{
-	m_db->PExecute("UPDATE share_info SET type=%d, gift_time=NOW() where id = %d;", type, id);
+    return m_db->PExecute( "update gameserver_info set is_test = %u where server_id = %u", dwIsTest, dwServerId );
 }
 
 }

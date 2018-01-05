@@ -20,6 +20,7 @@
 class CSocketBuffer;
 class CUserSession;
 class WorldPacket;
+class CRelayClientSession;
 
 class CClient
 {
@@ -55,6 +56,7 @@ public:
 	void SendPacket(WorldPacket *packet);
 
 	int GetdwKey();
+	CRelayClientSession* GetRelayClientSession() { return (CRelayClientSession *)m_pSession; }
 
 private:
 	void SendSinglePacket();

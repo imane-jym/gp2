@@ -16,6 +16,19 @@ extern volatile bool g_stopEvent;
 
 int CUtil::timeOff = 0;
 
+bool CUtil::CreateHashString(std::string& str,uint32 dwLength)
+{
+	str.erase();
+	for (int q=0;q<16;q++)
+	{
+		if (rand()&0x1)
+			str+=char( rand()%26+'a');
+		else
+			str+=char( rand()%10+'0');
+	}
+	return true;
+}
+
 void CUtil::StrSplit(const std::string & src, const std::string & sep, std::vector<std::string> & vecRes)
 {
 	vecRes.clear();

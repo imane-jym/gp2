@@ -73,7 +73,10 @@ bool CCsvReader::Init(std::string content)
 //		CUtil::StrSplit(line, ",", oneline);
 	}	
 	if (ret != 1)
+	{
+		m_ErrorStr = CUtil::FormatError("near line %s format error", line.c_str());
 		return false;
+	}
 	return true;
 }
 
@@ -201,7 +204,10 @@ bool CCsvReader::InitByFile(std::string path)
 //		CUtil::StrSplit(line, ",", oneline);
 	}	
 	if (ret != 1)
+	{
+		m_ErrorStr = CUtil::FormatError("near line %s format error", line.c_str());
 		return false;
+	}
 	return true;
 }
 
@@ -213,6 +219,16 @@ std::string CCsvReader::GetCell(int line, int row)
 	}
 	m_ErrorStr = CUtil::FormatError("unvalid line %u row %u", line, row);
 	return "";
+}
+
+std::vector<std::string>* CCsvReader::GetLine(int line)
+{
+	if ((size_t)line < m_table.size())
+	{
+		return &m_table[line];
+	}
+	m_ErrorStr = CUtil::FormatError("unvalid line %u", line);
+	return NULL;
 }
 
 std::string CCsvReader::GetErrorStr()

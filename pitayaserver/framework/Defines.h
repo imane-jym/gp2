@@ -95,5 +95,17 @@ enum
 #define FOR_EACH_REVERSE(it, container) \
     for( typeof((container).rbegin()) it = (container).rbegin(); it != (container).rend(); ++it )
 
+const uint32 MAX_PROTOBUF_DEBUG_LEN = 500;          // protobuf 打印字符长度
+
+enum TimeConstants
+{            
+	MINUTE = 60, 
+	HOUR   = MINUTE * 60,
+	DAY    = HOUR   * 24,
+	WEEK   = DAY    * 7,
+	MONTH  = DAY    * 30,
+	YEAR   = MONTH  * 12,
+	IN_MILLISECONDS = 1000
+};           
 
 #endif

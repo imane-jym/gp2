@@ -49,6 +49,7 @@ public:
 
 	virtual void AddSessionToWorker();
 	virtual void Offline();
+	CHandlerClientSession *GetHandler() { return &m_CHandler; }
 
 private:
 	CClient * m_pClient;

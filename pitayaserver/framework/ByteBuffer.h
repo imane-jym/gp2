@@ -19,11 +19,37 @@
 #include <stdlib.h>
 #include <string.h>
 #include <map>
+#include <google/protobuf/message.h>
 #ifdef LUA_USE_VERSION
 #include "eluna/ELuna.h"
 #elif defined JAVASCRIPT_uSE_VERSION
 #endif
 #define CCLOG(format, ...)      IME_LOG(format, ##__VA_ARGS__)
+
+/*
+class ByteBufferException : public std::exception
+{
+public:
+	ByteBufferException( bool add, size_t pos, size_t size, size_t esize )
+	:add(add), pos(pos), esize(esize), size(size)
+	{
+	}
+
+	virtual const char* what() const throw()
+	{
+		static char str[128];
+		sprintf( str, "Attempt %s in ByteBuffer (pos: %lu size: %lu) value with size: %lu",(add ? "put" : "get"),
+				pos, size, esize );
+		return str;
+	}
+
+protected:
+	bool	add;
+	size_t	pos;
+	size_t 	size;
+	size_t	esize;
+};
+*/
 
 class ByteBuffer
 {
@@ -163,6 +189,24 @@ class ByteBuffer
             append((uint8)0);
             return *this;
         }
+		// append a byte buffer
+		ByteBuffer& operator<<(const ByteBuffer& rhs)
+		{
+			append<uint32>( rhs.size() );
+			append( rhs.contents(), rhs.size() );
+			return *this;
+		}
+		ByteBuffer& operator<<( const google::protobuf::Message& m )
+		{
+			int len = m.ByteSize();
+			//		append<int>( len );
+
+			if ( _storage.size() < _wpos + len ) _storage.resize( _wpos + len );
+			m.SerializeToArray( &(_storage[_wpos]), len );
+			_wpos += len;
+			return *this;
+		}
+
 
         ByteBuffer &operator>>(bool &value)
         {
@@ -269,6 +313,32 @@ class ByteBuffer
             }
             return *this;
         }
+		ByteBuffer& operator>>(ByteBuffer& value)
+		{
+			uint32 size = read<uint32>();
+			value.resize( size );
+			read( const_cast<uint8*>(value.contents()), size );
+			return *this;
+		}
+
+		ByteBuffer& operator>>( google::protobuf::Message& m )
+		{
+			//		int len = read<int>();
+			int len = size() - _rpos;
+			if ( _rpos + len > size() )
+			{
+#ifndef TARGET_OS_IPHONE
+//				throw ByteBufferException( false, _rpos, size(), len );
+				IME_ERROR("Attempt get in ByteBuffer pos: %lu size: %lu value with size: %d", _rpos, size(), len);
+#else
+				assert(false);
+#endif
+			}
+
+			m.ParseFromArray( &(_storage[_rpos]), len );
+			_rpos += len;
+			return *this;
+		}
 
         uint8 operator[](size_t pos)
         {

@@ -275,7 +275,7 @@ void CClient::OnTimer(evutil_socket_t fd, short ev, void *arg)
 	if (!pClient->IsConnected())
 	{
 		pClient->ReConnect();
-		handlerOnConnect(true, pClient->GetdwKey());
+		handlerOnConnect(pClient->GetRelayClientSession()->GetHandler(), true, pClient->GetdwKey());
 	}
 
 	timeval tv;

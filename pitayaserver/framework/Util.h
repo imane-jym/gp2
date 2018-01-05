@@ -28,6 +28,7 @@ class CUtil
 {
 
 public:
+	static bool CreateHashString(std::string& str,uint32 dwLength);
 	// 随机方式
 	static void StrSplit(const std::string & src, const std::string & sep, std::vector<std::string> &vecRes);
 	static void StrMerge(std::string & src, const std::string & sep, const std::vector<std::string> &vecRes);
@@ -219,6 +220,22 @@ public:
 		vsprintf( error_buf, fmt, ap );
 		va_end( ap );
 		return error_buf;
+	}
+
+	static std::string& StrReplace( std::string& str, std::vector<std::string>& args )
+	{
+		for (unsigned int i = 0; i < args.size() ; i++ )
+		{
+			char pat[16] = {};
+			snprintf( pat, 16, "{%d}", i );
+
+			size_t pos = -1;
+			while ( (pos = str.find( pat, pos + 1 )) != std::string::npos )
+			{
+				str.replace( pos, strlen( pat ), args[i] );
+			}
+		}
+		return str;
 	}
 	
 	static std::string StrReplace(std::string src, std::string seek, std::string str)

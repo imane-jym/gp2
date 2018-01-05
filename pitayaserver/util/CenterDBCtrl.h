@@ -23,7 +23,7 @@ enum ServerStatus
 	E_SERVER_STATUS_NEW			= 1,
 	E_SERVER_STATUS_HOT			= 2,
 	E_SERVER_STATUS_MAINTAIN	= 3,
-	E_SERVER_STATUS_INTERNAL 	= 4,
+	E_SERVER_STATUS_GM_ONLY		= 4,
 
 	E_SERVER_STATUS_COUNT
 };
@@ -33,7 +33,6 @@ enum RoleStatus
 	E_ROLE_STATUS_NORMAL		= 0,
 	E_ROLE_STATUS_FORBID		= 1,
 	E_ROLE_STATUS_BAN_SPEAK		= 2,
-	E_ROLE_STATUS_GUILD			= 3,
 
 	E_ROLE_STATUS_CNT			= 4,
 };
@@ -44,13 +43,19 @@ enum LoginAuthType
 	E_LOGIN_AUTH_TYPE_PLATFORM		= 1,	// 第三方平台登录
 	E_LOGIN_AUTH_TYPE_FAST			= 2,	// 快速登录
 };
-
+enum CDKeyState
+{
+    E_CDK_STATE_NO_NEED_VERIFY      = 0,    //  不需要验证
+    E_CDK_STATE_VERIFIED            = 1,    //  已经验证
+    E_CDK_STATE_NOT_VERIFIED        = 2,    //  未验证
+};
 enum LoginResultType
 {
 	E_LOGIN_RESULT_TYPE_OK			= 0,
 	E_LOGIN_RESULT_TYPE_NOT_FOUND	= 1,
 	E_LOGIN_RESULT_TYPE_WRONG_PWD	= 2,
 	E_LOGIN_RESULT_ERROR			= 3,
+	E_LOGIN_RESULT_VERIFY_ERROR		= 4,	//	校验码验证失败
 };
 
 enum ChargeState
@@ -71,6 +76,8 @@ enum GoodsState
 	E_GOODS_STATE_OFF_SALE			= 0,
 	E_GOODS_STATE_ON_SALE			= 1,
 	E_GOODS_STATE_HOT				= 2,
+	E_GOODS_STATE_NEW				= 3,
+	E_GOODS_STATE_DISCOUNT			= 4,
 };
 
 enum LoginStrategyType
@@ -81,13 +88,8 @@ enum LoginStrategyType
 	E_LOGIN_STRATEGY_TYPE_VERSION	= 4,
 	E_LOGIN_STRATEGY_TYPE_DEVICE	= 5,
 	E_LOGIN_STRATEGY_TYPE_REG_TIME	= 6,
-
-	// 白名单
-	E_LOGIN_STRATEGY_TYPE_SVN_VERSION = 7,
-
-	// 黑名单
-	E_LOGIN_STRATEGY_TYPE_SVN_VERSION_BLACK_LIST = 8,
-	E_LOGIN_STRATEGY_TYPE_DEVICE_NUMBER = 10
+//	E_LOGIN_STRATEGY_TYPE_JS_SVN_VER 	= 7,
+	E_LOGIN_STRATEGY_TYPE_RES_SVN_VER	= 8,
 };
 
 enum LoginBindResultType
@@ -107,18 +109,7 @@ enum NoticeUseType
 	E_NOTICE_USE_TYPE_CUSTOM_SERVICE	= 3,
 	E_NOTICE_USE_TYPE_WEIBO				= 4,
 	E_NOTICE_USE_TYPE_UPDATE_ADDR		= 5,
-	E_NOTICE_USE_TYPE_HIDE_HERO_TYPE	= 6,
-	E_NOTICE_USE_TYPE_HIDE_PAY_TYPE		= 7,
-	E_NOTICE_USE_TYPE_COMMENT_ADDRESS	= 8,
-	E_NOTICE_USE_TYPE_SPRC_GIFT_CODE	= 9,
-
-	E_NOTICE_USE_TYPE_LOGIN_TIME_RANGE			= 10,
-	E_NOTICE_USE_TYPE_GAME_TIME_RANGE			= 11,
-	E_NOTICE_USE_TYPE_CUSTOM_SERVICE_TIME_RANGE	= 12,
-	E_NOTICE_USE_TYPE_ONLINE_PARA				= 13,
-	E_NOTICE_USE_TYPE_CHAT_ADDR					= 14,
-	E_NOTICE_USE_TYPE_NOTICE_URL        = 15,
-	E_NOTICE_USE_TYPE_CUSTOM_INFO       = 16
+	E_NOTICE_USE_TYPE_SO_FILE_MD5		= 23,	//so文件校验码
 };
 
 enum NoticeConditionType
@@ -135,16 +126,44 @@ enum IOSVersion
 	E_IOS_VERSION_7			= 7,
 };
 
+enum ServerType
+{
+    E_SERVER_TYPE_GAME_SERVER           = 1,
+    E_SERVER_TYPE_RELAY_SERVER          = 2,
+};
+
+typedef struct STC_RELAY_SERVER_STATUS
+{
+	uint32	dwServerId;
+	uint8	byType;
+	uint32	dwGroup;
+	uint8	byMergeGroup;
+	uint32	dwUpdateTime;
+	bool	bIsAlive;
+} STC_RELAY_SERVER_STATUS;
+struct STC_BATTLE_SERVER_DETAIL
+{
+	uint32		dwRelayServerId;
+	std::string	strServerIp;
+	uint32	 	dwServerPort;
+	std::string	strBattleId;
+	uint32		dwLastUpdateTime;
+	uint32		dwConnectPlayerNum;
+	STC_BATTLE_SERVER_DETAIL():dwRelayServerId(0),dwServerPort(0),dwLastUpdateTime(0),dwConnectPlayerNum(0){}
+};
+typedef std::map<std::pair<uint8/*RelayServerType*/,uint32/*RelayServerGroup*/>, STC_RELAY_SERVER_STATUS> RelayServerStatusContainer;
+typedef std::vector<STC_BATTLE_SERVER_DETAIL> BattleServerDetailContainer;
 typedef struct STC_SERVER_STATUS
 {
 	uint32 			dwServerId;
-	uint32			dwServerVersionCode;
 	std::string		strServerName;
 	std::string 	strIp;
+	std::string		strLocalIp;
 	uint32 			dwPort;
 	std::string		strVersion;
-	std::string		strResVersionFull;
-	std::string		strResVersionConfig;
+	std::string		strClientVer;
+	std::string		strClientResVer;
+	std::string		strResVer;
 	std::string		strResServerAddr;
 	uint32 			dwOnlineNum;
 	uint8 			byCanLogin;
@@ -152,11 +171,78 @@ typedef struct STC_SERVER_STATUS
 	uint32			dwLoginStrategy;
 	uint32			dwLastUpdateTime;
 	bool 			bIsAlive;
-	uint32			dwCanRegister;
-	uint8 			dwMergeTimes;
-	uint32 			dwLastMergeTime;
-	uint32 			dwCenterPort;
+	bool			bIsTest;
+	uint8			byActivateReq;
+	uint8           byServerIdentify;
+	std::string     strDbName;
 } STC_SERVER_STATUS;
+
+typedef struct STC_PASSPORT_INFO
+{
+	STC_PASSPORT_INFO()
+	:ddwPassportId(0),dwPlatform(0),byAuthType(0),dwCreateTime(0),byGmAuth(0),
+	dwLastLoginTime(0),
+	dwLastLoginServerId(0),
+	dwTokenTime(0),
+	byCDKStatus(0)
+	{
+	}
+	uint64			ddwPassportId;
+	std::string		strPassport;
+	std::string		strPwd;
+	std::string		strMail;
+	std::string		strUid;
+	std::string		strToken;
+	uint32			dwPlatform;
+	uint8			byAuthType;
+	uint32			dwCreateTime;
+	uint8			byGmAuth;
+	std::string		strCreateIp;
+	std::string		strCreateDevice;
+	std::string		strCreateDeviceType;
+	uint32			dwLastLoginTime;
+	uint32			dwLastLoginServerId;
+	std::string		strOpenUdid;
+	std::string		strAppleUdid;
+	std::string		strTokenIp;
+	uint32			dwTokenTime;
+	uint8           byCDKStatus;
+} STC_PASSPORT_INFO;
+
+typedef struct STC_LOGIN_STRATEGY_CONDITION
+{
+	uint8		byType;
+	std::string strValue;
+	bool		bIsNot;
+
+} STC_LOGIN_STRATEGY_CONDITION;
+
+typedef struct STC_LOGIN_STRATEGY
+{
+	std::vector<
+		std::vector< STC_LOGIN_STRATEGY_CONDITION >	// or
+	> vvConditions;	// and
+} STC_LOGIN_STRATEGY;
+
+typedef struct STC_CHARGE_INFO
+{
+	uint32		dwAutoId;
+	uint32		dwRoleId;
+	uint32		dwGoodsId;
+	uint32		dwGoodsQuantity;
+	std::string	strAddition2;
+	uint32		dwPlatform;
+
+	std::string strAddition5;
+
+} STC_CHARGE_INFO;
+
+typedef struct STC_SERVER_MERGE
+{
+	uint32 originid;
+	uint32 mergeid;
+	uint32 mergetype;
+}STC_SERVER_MERGE;
 
 typedef struct STC_GOODS_INFO
 {
@@ -172,175 +258,44 @@ typedef struct STC_GOODS_INFO
 	GoodsState		byStatus;
 	uint32			dwLimitDay;
 	uint32			dwSortIdx;
-	uint32			dwIconId;
+	std::string		strIcon;
 	std::string		strName;
 	std::string		strDescription;
-	uint32			dwBuyLimitOnce;
-	uint32			dwLimitTimeStart;
-	uint32			dwLimitTimeEnd;
-	uint8			byVipShow;
-	uint8			byVipBuy;
-	uint32			dwBuyCountTotal;
-	uint32			dwBuyCountInc;
 	std::string		strPlatformGoodsId;
-	uint8			byPlatformType;
-	uint32			dwWeight;
+	uint32			dwPlatformType;
 
+	uint32			dwDiscount;
+	uint16			wRoleLvReq;
+	uint32			dwBonusBuyCount;
+	uint32			dwBonusLimit;
+	uint8			byBonusResetType;
 	uint32			dwDiamondPay;
-	std::string		dwLimitNumber;
-	uint32			dwLimitType;
-	uint32			dwPrizeFloat;
-	uint32			byUseRechargeRate;
-	std::string		buyEx;
-	std::string		thirdGoodId;
-//	std::string		IOSGoodId;
-//	std::string		AndroidGoodId;
-	std::string		currency;
-	uint32			goodGift;
-	std::string		itemIcon;
-	std::string		collectionIcon;
-
-	uint32          dwPlayerLevel;
-	uint32 			dwRechargeRate;
-	std::string 	dwExtra;
-	std::string 	dwOldPrice;
-	STC_GOODS_INFO()
-	{
-		dwGoodsId = 0;
-		byShopType = 0;
-		dwBuyTypeId = 0;
-		dwBuyContentId = 0;
-		dwBuyCount = 0;
-		dwCostTypeId = 0;
-		dwCostContentId = 0;
-		dwCostCount = 0;
-		dwCostCountOld = 0;
-		byStatus = (GoodsState)0;
-		dwLimitDay = 0;
-		dwSortIdx = 0;
-		dwIconId = 0;
-		strName = "";
-		strDescription = "";
-		dwBuyLimitOnce = 0;
-		dwLimitTimeStart = 0;
-		dwLimitTimeEnd = 0;
-		byVipShow = 0;
-		byVipBuy = 0;
-		dwBuyCountTotal = 0;
-		dwBuyCountInc = 0;
-		strPlatformGoodsId = "";
-		byPlatformType = 0;
-		dwWeight = 0;
-
-		dwDiamondPay = 0;
-		dwLimitNumber = "";
-		dwLimitType = 0;
-		dwPrizeFloat = 0;
-		byUseRechargeRate = 0;
-		goodGift = 0;
-		dwPlayerLevel = 0;
-		dwRechargeRate = 0;
-		dwExtra = "";
-		dwOldPrice = "";
-	}
+	STC_GOODS_INFO():dwGoodsId(0),byShopType(0),dwBuyTypeId(0),dwBuyContentId(0),dwBuyCount(0),dwCostTypeId(0)
+	,dwCostContentId(0),dwCostCount(0),dwCostCountOld(0),byStatus(E_GOODS_STATE_ON_SALE),dwLimitDay(0),dwSortIdx(0),
+	dwPlatformType(0),dwDiscount(0),wRoleLvReq(0),dwBonusBuyCount(0),dwBonusLimit(0),byBonusResetType(0),dwDiamondPay(0){}
 } STC_GOODS_INFO;
 
-typedef struct STC_ACTIVITY_INFO
+typedef struct STC_DUNGEON_HELP_INFO
 {
 	uint32		dwAutoId;
-	uint32		dwServerId;
-	uint8		byType;
-	std::string	strParam;
-	ByteBuffer	data;
-	uint32		dwGmCommandId;
-} STC_ACTIVITY_INFO;
+	uint32		dwRoleId;	// 帮助者
+	uint32		dwTargetId;	// 被帮助者
+	uint16		wDungeonIdx;
+	uint32		dwKingHeroId;// 帮助者国王Id
 
-typedef struct STC_LOGIN_STRATEGY_CONDITION
+} STC_DUNGEON_HELP_INFO;
+
+class LoginDBNoticeInfo
 {
-	uint8		byType;
-	std::string strValue;
+public:
+	bool	bIsPlateForm;
+	uint32	dwPlateFormId;
 
-} STC_LOGIN_STRATEGY_CONDITION;
-
-typedef struct STC_LOGIN_STRATEGY
-{
-	std::vector<
-		std::vector< STC_LOGIN_STRATEGY_CONDITION >	// or
-	> vvConditions;	// and
-} STC_LOGIN_STRATEGY;
-
-typedef struct CHARGE_INFO_STC
-{
-	uint32		dwAutoId;
-	uint32		dwRoleId;
-	uint32		dwGoodsId;
-	uint32		dwGoodsQuantity;
-	std::string	strAddition2;
-	uint16		wPlatform;
-	uint32		dwValue;
-
-	std::string strAddition5;
-	std::string	strAddition3;
-
-	uint32		dwPlatformType;
-
-} STC_CHARGE_INFO;
-
-typedef struct STC_WORLD_BATTLE_SHARE
-{
-	uint32		dwRoleId;
-	std::string	strName;
-	uint32		dwServerId;
-	std::string	strServerVer;
-	std::string strServerName;
-	uint32		dwLevel;
-	uint32		dwCapHeroId;
-	uint32		dwWinCnt;
-	uint32		dwCombat;
-	uint32		dwUpdateTime;
-	uint32		dwRank;
-
-} STC_WORLD_BATTLE_SHARE;
-
-typedef struct STC_CDKEY
-{
-	std::string		strCDkey;
-	uint32			dwChannel;
-	uint32			dwStartTime;
-	uint32			dwEndTime;
-	uint32			dwLimitNumber;
-	std::string		strPrize;
-	uint8			byStatus;
-	uint32			dwBatchId;
-} STC_CDKEY;
-
-typedef struct STC_ACTIVITY_CONF
-{
-	uint32 id;
-	std::string type;
-	std::string name;
-	uint32 begintime;
-	uint32 endtime;
-	std::string detail;
-}STC_ACTIVITY_CONF;
-
-typedef struct STC_SHAREINFO_CONF
-{
-	uint32 id;
-	uint64 role_id;
-	uint64 inviter_id;
-	uint32 type;
-	bool   istest;
-	uint32 inviter_time;
-	uint32 gift_time;
-}STC_SHAREINFO_CONF;
-
-typedef struct STC_SERVER_MERGE
-{
-	uint32 originid;
-	uint32 mergeid;
-	uint32 mergetype;
-}STC_SERVER_MERGE;
+	uint32	dwAutoId;
+	uint32	dwStartTs;
+	uint32	dwEndTs;
+	std::string strContent;
+};
 
 class CenterDBCtrl
 {
@@ -349,18 +304,26 @@ public:
 	static bool ExistsIndex( const char* table, const char* index );
 	static bool ExistsColumn( const char* table, const char* column );
 	static bool ExistsTable( const char* table );
+	static bool ExistsServer( uint32 dwServerid );
 	static bool InitCenterDB( DatabaseMysql* db );
 	static bool InitCenterDB( DatabaseMysql* db, uint8 byLoginServerId );
 
 	static uint32 NextRoleId();
-	static uint64 NextPassportId( uint16 wPlatformId );
+	static uint64 NextPassportId( uint32 dwPlatformId );
 
 	static uint32 GetDBTime();
 
 	static bool ExistsPassport( uint64 dwPassport );
-	static bool ExistsPassport( std::string strPassport, uint8 byAuthType, uint16 wPlatform );
+	static bool ExistsPassport( std::string strPassport, uint8 byAuthType, uint32 dwPlatform );
 	static bool ExistsRole( uint32 dwRoleId );
 
+	//////////////////////////////////////
+	/////////// Server /// ///////////////
+
+	static bool GetMergedListInfo(std::map<uint32, STC_SERVER_MERGE>& out);
+	static uint32 GetServerIdOriginByRoleId(uint32 roleId);
+
+	/** 由Game Server定时写入自身信息 */
 	static bool UpdateGameServerInfo(
 			uint32 			dwServerId,
 			std::string		strServerName,
@@ -375,36 +338,56 @@ public:
 			uint8			byCanLogin,
 			uint8 			byStatus,
 			uint32			dwLoginStrategyId,
-		    uint32			dwCanRegister,
-			uint8 			dwMergeTimes,
-			uint32 			dwLastMergeTime,
-			uint32 			dwCenterPort	);
-	static uint32 GetServerIdMerged( uint32 dwServerId );
-	static void GetInfoMerged(uint32 dwServerId, uint32& dwMergedServerId, uint32& dwMergedType);
-	static bool GetMergedListInfo(std::map<uint32, STC_SERVER_MERGE>& out);
-	static uint32 GetServerIdOriginByRoleId(uint32 roleId);
+			uint8           byServerIdentify,
+			uint8 			byIsTest,
+			std::string     strDbName );
 
-	static bool UpdateServerVersionCode( uint32 dwGameServerId, uint32 dwServerVersionCode );
-	static bool UpdateServerMergeTimes( uint32 dwGameServerId, uint8 dwMergeTimes);
-	static bool UpdateServerLastMergeTime( uint32 dwGameServerId, uint32 mergetime);
-	static uint8 GetServerMergeTimes( uint32 dwGameServerId);
-	static uint32 GetServerLastMergeTime( uint32 dwGameServerId);
-	static uint32 GetServerVersionCode( uint32 dwGameServerId );
-	static int GetLoginStrategyId( uint32 dwGameServerId );
-	static bool UpdateCenterPort( uint32 dwCenterPort, uint32 dwGameServerId);
-	static uint32 GetCenterPort( uint32 dwGameServerId);
+	static bool UpdateRelayServerInfo(
+			uint32 dwServerId,
+			uint8  byType,
+			uint32  dwGroup,
+			uint32 dwDBTime);
+    static uint32 GetServerIdMerged( uint32 dwServerId );
+    static bool GetServerMergeLog( std::map<uint32,uint32>& mapMergeTable );
+	//获取合服的Role，及其合服前的ServerId
+	// mapRoleOriginSID: <RoleId, OriginServerId>
+	static bool GetMergedRoleIds(std::map<uint32, uint32>& mapRoleOriginSID, uint32 dwServerId);
 
+	static bool UpdateBattleserverInfo(uint32 dwRelayId,uint32 dwTotal,uint32 dwRunning,uint32 dwPlayerNum);
+//	static bool UpdateBattleserverList(BattleServerDetailContainer& vecBattleServer);
+	static bool DelBattleServer(std::string ip,uint32 dwPort);
+
+	static bool GetLoginStrategy(
+			uint32				dwStrategyId,
+			STC_LOGIN_STRATEGY& oStrategy );
+
+	static bool GetOrUpdateGameServerStatus(
+			std::map<uint32, STC_SERVER_STATUS>& mapServer );
+	static bool GetOrUpdateRelayServerStatus(
+			RelayServerStatusContainer& mapRelayServer);
+	/*static bool GetOrUpdateBattleServerStatus(
+			BattleServerStatusContainer& mapRelayServer);*/
+
+	static bool UpdateClosedGameServer( uint32 dwServerId );
+
+	static bool IsTestServer( uint32 dwServerId );
+
+	//////////////////////////////////////
+	/////////// Passport /////////////////
+	static bool IsPassportRegistered(
+	        std::string     strPassport
+	                                );
 	static LoginResultType ValidateAuthAccount(
 			std::string 	strPassport,
 			std::string 	strPwd,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			uint64&			odwPassportId );
 
 	static LoginResultType ValidateAuthPlatform(
 			std::string		strPlatformToken,
 			std::string		strUid,
 			std::string 	strDeviceToken,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			std::string		strRegIp,
 			std::string		strRegDevice,
 			std::string		strRegDeviceType,
@@ -418,15 +401,32 @@ public:
 			std::string		strAppleUdid,
 			uint8			byIOSVersion,
 			std::string		strDeviceToken,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			std::string		strRegIp,
 			std::string		strRegDevice,
 			std::string		strRegDeviceType,
-			uint64&			odwPassportId );
+			uint64&			odwPassportId,
+			uint8           byCDKStatus);
 
+	static bool RegisterPassport(
+			std::string		strPassport,
+			std::string		strPwd,
+			std::string		strMail,
+			std::string		strUid,
+			std::string		strToken,
+			uint32			dwPlatform,
+			std::string		strRegIp,
+			std::string		strRegDevice,
+			std::string		strRegDeviceType,
+			std::string		strOpenUdid,
+			std::string		strAppleUdid,
+			uint8           );
+
+	static bool ModifyPassportAndPassword( uint64 dwPassportId, std::string Passport, std::string strPwd );
 	static bool ModifyPassword( uint64 dwPassportId, std::string strNewPwd );
 	static bool ModifyPassword( uint32 dwRoleId, std::string strOldPwd, std::string strNewPwd );
-	static bool ModifyPlatform( uint64 passportId, uint16 platform );
+
+	static bool UpdateCDKStatus( uint64 dwPassportId, uint8 byCDKStatus );
 
 	static bool InsertPassportInfo(
 			std::string		strPassport,
@@ -434,7 +434,7 @@ public:
 			std::string		strMail,
 			std::string		strUid,
 			std::string		strToken,
-			uint16			wPlatform,
+			uint32			dwPlatform,
 			uint8			byAuthType,
 			uint32			dwCreateTime,
 			uint8			byGmAuth,
@@ -443,50 +443,32 @@ public:
 			std::string		strCreateDeviceType,
 			std::string		strOpenUdid,
 			std::string		strAppleUdid,
-			uint64&			odwPassportId );
+			uint64&			odwPassportId,
+			uint8           byCDKStatus );
 
-	static bool GetPassportInfo(
+	static bool GetPassportInfo( uint64 dwPassportId, STC_PASSPORT_INFO& stcInfo );
+
+	static bool UpdatePassportGmAuth(
 			uint64			dwPassportId,
-			uint16&			owPlatform,
-			std::string&	ostrPlatformId,
-			uint8&			obyGmAuth );
-	static bool GetCountryNameByPassportId(uint64_t dwPassportId, std::string &country_name);
-	static uint32 GetPassportRegTime( uint64 dwPassportId );
+			uint8			byGmAuth
+	);
+	static bool SetLastLoginServer( uint64 dwPassportId, uint16 wServerId );
 
-	static std::string GetDevice( uint64 dwPassportId );
+	// return passport_id
+	static uint64 UpdateRoleToken( uint32 dwRoleId, std::string strToken );
+
+	//////////////////////////////////////
+	/////////// Role /////////////////////
 
 	static uint64 GetPassportId( uint32 dwRoleId );
-
-	static bool GetLoginStrategy(
-			uint32				dwStrategyId,
-			STC_LOGIN_STRATEGY& oStrategy );
-
-	static bool BackupPassportOfRole( DatabaseMysql* dstDB, uint32 dwRoleId );
-
-	static bool GetOrUpdateGameServerStatus(
-			std::map<uint32, STC_SERVER_STATUS>& mapServer );
-
-	static bool UpdateClosedGameServer( uint32 dwServerId );
-
-	static int GetOrInsertRoleId( uint64 dwPassportId, uint32 dwServerId, uint32 &roleId, uint32 canRegister);
+	static uint32 GetRoleId( uint64 dwPassportId, uint32 dwServerIdOrigin );
+	static uint32 GetOrInsertRoleId( uint64 dwPassportId, uint32 dwServerIdOrigin );
 	static bool IsRoleForbid( uint32 dwRole );
-
-	static bool RegisterPassport(
-			std::string		strPassport,
-			std::string		strPwd,
-			std::string		strMail,
-			std::string		strUid,
-			std::string		strToken,
-			uint16			wPlatform,
-			std::string		strRegIp,
-			std::string		strRegDevice,
-			std::string		strRegDeviceType,
-			std::string		strOpenUdid,
-			std::string		strAppleUdid );
 
 	static bool InsertOrUpdateRoleInfo(
 			uint32			dwRoleId,
 			std::string		strRoleName,
+			uint8           byGmAuth,
 			uint32			dwProgress,
 			uint32			dwLevel,
 			uint32			dwGold,
@@ -498,68 +480,41 @@ public:
 			uint32			dwStamina,
 			uint32			dwEnergy,
 			uint32			dwMainQuestId,
-			uint32			dwDiamondPay );
-
-	static bool InsertOrUpdateRoleDetailInfo(
-				uint32			dwRoleId,
-				uint32			dwDiamondPay );
-
-	static bool InsertOrUpdateRoleLastOp(
-				uint32			dwRoleId,
-				uint32			dwDiamondPay );
-
-	static uint32 InsertActivity(
-			uint32			dwServerId,
-			uint8			byTypeId,
-			std::string		strParam,
-			ByteBuffer&		data,
-			uint32			dwGmCommandId );
-
-	static bool UpdateActivity(
-			uint32			dwAutoId,
-			ByteBuffer&		data );
-
-	static bool UpdateTimeCardRecord( uint32 dwRoleId, std::string szCardInfo );
-
-	static bool GetAllActivity(
-			std::vector<STC_ACTIVITY_INFO>& vActivity, uint32 dwGameServerId );
-	static bool DeleteAllActivity( uint32 dwGameServerId );
-
-	static bool DeleteActivity( uint32 dwAutoId );
-
-	static bool UpdateRoleLastLoginTime(
-			uint32			dwRoleId
+			uint32			dwDiamondPay,
+			uint32			dwCreateTime
 	);
-
-	static bool UpdatePassportGmAuth(
-			uint64			dwPassportId,
-			uint8			byGmAuth
-	);
-
-	static bool GetHeroBegsInfo( uint32 dwRoleId, std::string &strBegsInfo );
-
-	static bool InsertOrUpdateOperStatisticsInfo( uint32 dwRoleId, ByteBuffer &data );
-
-	static bool UpdateRoleGmAuth(uint32	dwRoleId, uint8	byGmAuth, bool toSamePassportRoles=false);
-
-	static bool UpdateRoleGmAuthByPassport(uint64 dwPassportId, uint8 byGmAuth);
-
-	static bool ClearPassportGmAuth();
-
-	static bool ClearRoleGmAuth();
 
 	static uint32 InsertLoginInfo(
 			uint32 			dwRoleId,
-			std::string		strRegIp,
-			std::string		strRegDevice,
-			std::string		strRegDeviceType );
+			std::string		strLoginIp,
+			std::string		strLoginDevice,
+			std::string		strLoginDeviceType );
+
 	static bool InsertLogoutInfo( uint32 dwAutoId );
 
-	static bool GetExtendReward( const char* strTableName, const char* strId, uint32& dwItemId, uint32& dwItemCnt, uint8& byState );
-	static bool SetExtendRewardGot( const char* strTableName, const char* strId, uint8 byState );
+	static bool UpdateRoleGmAuth(
+			uint32			dwRoleId,
+			uint8			byGmAuth );
 
-	static uint32 GethandledTotalCharge( uint32 account_id );
-	static bool GethandledTotalChargeAll( std::map<uint32, uint32> &mapCharge );
+	static uint8 GetGmAuthByPassportId( uint64 ddwPassportId );
+	static uint8 GetGmAuth( uint32 dwRoleId );
+	static uint32 GetPlatformId( uint32 dwRoleId );
+	static uint32 GetRoleCreateTime( uint32 dwRoleId );
+	static std::string GetRoleName( uint32 dwRoleId );
+	static uint16 GetRoleServerId( uint32 dwRoleId );
+	static uint16 GetRoleServerIdOrigin( uint32 dwRoleId ); // add by swt
+	static int GetRolePlatform( uint32 dwRoleId ); // return -1 if error
+
+	static bool SetRoleStatus( uint32 dwRoleId, uint8 byStatus );
+	static uint8 GetRoleStatus( uint32 dwRoleId );
+
+	static bool SetRoleLevel( uint32 dwRoleId,uint16 wLevel);
+	static void GetRoleLevel(uint64 dwPassportId, std::map<uint32/*serverId*/,uint32/*level*/>& mapServerLevel);
+
+	static uint32 GetPtrCount( uint32 dwRoleId );
+
+	//////////////////////////////////////
+	/////////// Charge ///////////////////
 
 	static bool GetUnhandledCharge(
 			std::list<STC_CHARGE_INFO>& vCharges );
@@ -571,7 +526,7 @@ public:
 			std::string strDevice,
 			std::string strDeviceType,
 			std::string strDeviceUid,
-		    uint32		diamondPay	);
+			uint32		dwDiamondPay );
 
 	static uint32 CreateCharge(
 			uint32		dwRoleId,
@@ -582,13 +537,12 @@ public:
 			std::string	strInnerOrderId,
 			std::string strPlatformOrderId,
 			std::string strPlatformAccount,
-			uint16		wPlatform,
+			uint32		dwPlatform,
 			uint16		wPaymentType,
 			uint32		dwPaymentTime,
-			std::string	strClientOrderId,
-		    std::string	addition2	);
+			std::string	strClientOrderId );
 
-	static bool HasCharge( uint16 wPlatform, std::string strPlatformOrderId );
+	static bool HasCharge( uint32 dwPlatform, std::string strPlatformOrderId );
 
 	static uint32 InsertPurchaseInfo(
 			uint32			dwRoleId,
@@ -598,51 +552,13 @@ public:
 			uint32			dwDiamondPaidUse,
 			uint32			dwTime );
 
-//	static bool GetNoticeOfServer( uint32 dwServerId, std::string& strNotice );
-//	static bool UpdateOrInsertNotice( uint32 dwServerId, std::string strNotice );
+	static bool SetChargeStatus( std::vector< uint32 >& vecRoleId, uint32 dwStaratTime, uint32 dwEndTime, std::string& strErrMsg );
 
 	static std::string GetNotice( NoticeUseType eUseType, NoticeConditionType eCondType, uint32 dwCondValue );
-	static bool GetNoticeTimeRange( NoticeUseType eUseType, NoticeConditionType eCondType, uint32 dwCondValue, uint32 &dwStartTime, uint32 &dwEndTime );
 
-	// return passport_id
-	static uint64 UpdateRoleToken( uint32 dwRoleId, std::string strToken );
-
-	static void GetGoodsInfoOfGameServer( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId );
-	static void UpdateGoodsInfoOfGameServerOnly( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId, uint8 byTypeOnly );
-	static void UpdateGoodsInfoOfGameServerExcept( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId, uint8 byTypeEx );
-	static void UpdateGoodsInfoOfGameServerAll( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId );
-
-	static uint8 GetGmAuth( uint32 dwRoleId );
-	static uint16 GetPlatformId( uint32 dwRoleId );
-
-	static uint32 GetRoleCreateTime( uint32 dwRoleId );
-	static std::string GetRoleName( uint32 dwRoleId );
-	static uint16 GetRoleServerId( uint32 dwRoleId );
-	static int GetRolePlatform( uint32 dwRoleId ); // return -1 if error
-
-	static bool SetRoleStatus( uint32 dwRoleId, uint8 byStatus );
-	static uint8 GetRoleStatus( uint32 dwRoleId );
-
-	static uint16 GetLastLoginServer( uint64 dwPassportId );
-	static bool SetLastLoginServer( uint64 dwPassportId, uint16 wServerId );
-
-	static bool IsTestServer( uint32 dwServerId );
-
-	//////////////////////////////////////
-	/////////// Gift Box /////////////////
-	static bool GetGiftCodeInfo( uint32 dwId, uint32& odwParam1, uint32& odwParam2, uint32& odwParam3,
-			std::string& ostrReward, std::string& ostrServers, std::string& ostrPlatform, uint32& odwDeadTime, uint32& odwMaxUse );
-	static bool CheckGiftCodeUsed( uint32 dwId, uint32 dwIdx );
-	static uint32 GetGiftCodeSameTypeUsed( uint32 dwRoleId, uint32 dwId );
-	static bool InsertGiftCodeUse( uint32 dwRoleId, uint32 dwId, uint32 dwIdx );
-
-	//////////////////////////////////////
-	/////////// Invite Info //////////////
-	static bool InsertInviteInfo( uint32 dwRoleId, uint32 dwLevel, uint32 dwInviterId );
-	static bool UpdateInviteLevel( uint32 dwRoleId, uint32 dwLevel );
-	static bool GetInviteLevelList( uint32 dwRoleId, std::vector<uint32>& vLevel, std::vector<uint32>& vId );
-	static uint32 GetInviterId( uint32 dwRoleId );
-
+	// 获取GameServer的公告信息，建议每10分钟自动更新一次（也可GM指令触发）
+	// @ref	GetNotice | E_NOTICE_USE_TYPE_GAME
+	static bool GetGameNotice(uint32 dwServId, std::vector<LoginDBNoticeInfo> & vecNotice);
 
 	////////////////////////////////////
 	//////////// Bind //////////////////
@@ -650,33 +566,20 @@ public:
 			std::string strPassword = "", std::string strMail = "" );
 
 	///////////////////////////////////
-	/////////// Activity Stat /////////
-	static void AddActivityStat( uint32 dwActivityId, uint32 dwType, uint32 dwRoleId, uint32 dwReachIdx, uint32 dwReachTime );
-
-	///////////////////////////////////
 	//////////// Guild Reg ////////////
 	static uint32 RegisterGuild( uint32 dwRoleId );
 
-	//////////////////////////////////
-	//// World Battle Cache //////////
-	static bool GetPlayerBlobShare( ByteBuffer& buf, uint32 accountId, const char* field );
-	static bool SetPlayerBlobShare( ByteBuffer& buf, uint32 accountId, const char* field );
-	static bool GetPlayerInfoShareAll( std::vector<STC_WORLD_BATTLE_SHARE>& vRoles, uint32 dwServerId );
-	static bool SetPlayerInfoShare( uint32 dwRoleId, uint32 dwServerId, const char* strName, uint32 dwLevel, uint32 dwCapHeroId,
-			uint32 dwWinCnt, uint32 dwCombat );
-
-	//////////////////////////////////
-	//// Player Rank /////////////////
-	static bool InsertOrUpdatePlayerRank( uint32 dwServerId, uint8 byRankType, uint32 dwRank, std::string strName, uint32 dwValue );
-
 	////////////////////////////////////
 	/////  获取单个server的信息 //////////
-	static bool GetServerName( uint32 dwServerId, std::string &strServerName );
-	static bool GetServerIdAndName(std::map<uint32, std::string>& out);
+	static bool GetServerName( uint32 dwServerId, std::string &strServerName);
 
-	static bool GetCDKEYAndVerify(STC_CDKEY &t);
-	static int GetCount(uint32 batch_id, uint32 characterid, uint32 channel);
-	static bool UpdateCDKEY(std::string cdkey, uint32 characterid);
+	/////
+	static bool GetServerDbName( uint32 dwServerId, std::string &strDbName);
+
+	static bool GetServerLocalIp( uint32 dwServerId, std::string &strIp );
+
+	static bool UpdateServerIsTest( uint32 dwServerId, uint32 dwIsTest );
+
 	//////////////////////////////////////
 	/////////// GM Command ///////////////
 
@@ -693,31 +596,35 @@ public:
 			uint32 dwTargetId, uint32 dwStartTime, uint32 dwEndTime );
 
 	////////// login token checking /////////////
-	static void CreateLoginToken( uint64 ddwPassportId, std::string strIp );
+	static void CreateLoginToken( uint64 ddwPassportId, std::string strIp,bool bIsShadowLogin=false/*不记录留存*/ );
 	static void ClearLoginToken( uint32 dwRoleId );
-	static bool CheckWhiteIP(std::string strIp);
-	static bool CheckLoginToken( uint32 dwRoleId, std::string strIp, bool &isWhite );
-	static void CreateLoginTokenByRoleId( uint64 roleId, uint32 time);
+	static bool CheckLoginToken( uint32 dwRoleId, std::string strIp ,bool& bIsShadowLogin);
 
-	// 玩家信息解析相关
-	static bool SetPlayerDetailInfo(uint32 dwRoleId, std::string colum, std::string &buf );
-	static bool GetUserBetweenLoginTime(uint32 dwServerId, uint32 dwBeginTime, uint32 dwEndTime, std::vector<uint32> &vecAccount  );
+	//////////////////////////////////////
+	/////////// Gift Box /////////////////
+	static bool GetGiftCodeInfo( uint32 dwId, uint32& odwParam1, uint32& odwParam2, uint32& odwParam3,
+			std::string& ostrReward, std::string& ostrServers, std::string& ostrPlatform, uint32& odwDeadTime,
+			uint32& odwMaxUse, uint32& odwEveryUse );
+	static uint32 GetGiftCodeUsed( uint64 ddwRoleId, uint32 dwId, uint32 dwIdx );
+	static uint32 GetGiftCodeUsed( uint32 dwId, uint32 dwIdx );
+	static uint32 GetGiftCodeSameTypeUsed( uint64 dwRoleId, uint32 dwId ); //giftcode-roleid cdk-passportid
+	static bool InsertGiftCodeUse( uint64 dwRoleId, uint32 dwId, uint32 dwIdx );
 
-	static bool SetExchangeRecordInfo(uint32 dwRoleId, uint32 dwGoodId, uint32 dwGoodNum, uint32 dwTime, uint32 dwValue );
+	//////////////////////////////////////
+	//////////// Goods ///////////////////
+	static void GetGoodsInfoOfGameServer( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId );
+	static void UpdateGoodsInfoOfGameServerAll( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId );
+	static void InsertOrUpdateGoodsInfo(STC_GOODS_INFO& stcGood, uint32 dwGameServerId);
 
-	static void UpdateActivityConf( std::map<uint32, STC_ACTIVITY_CONF>& vActs, uint32 dwGameServerId );
-	static void DeleteActivityConf(std::string ids_str, uint32 dwGameServerId);
-	static void ClearActivityConf(uint32 dwGameServerId);
-
-	static void GetShareInfo(std::vector<STC_SHAREINFO_CONF>& vShareInfo);
-	static void UpdateShareInfo(uint32 id, uint32 type = 0);
 private:
-
-	static void UpdateGoodsInfoOfGameServer( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId );
 
 	static void ReadCommands( QueryResult* result );
 	static bool AppendGmCommand( GmCommand* pCommand );
 	static bool RemoveGmCommand( GmCommand* pCommand );
+
+	static void UpdateGoodsInfoOfGameServer( std::map<uint32, STC_GOODS_INFO>& vGoods, uint32 dwGameServerId );
+
+
 
 	static DatabaseMysql* 	m_db;
 	static uint8			m_byLoginServerId;
@@ -734,8 +641,4 @@ private:
 };
 
 }
-
-
-
-
 #endif

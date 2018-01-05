@@ -1,0 +1,125 @@
+note:: 在ubuntu 14.04 环境下
+服务器说明
+server share libc 服务器框架
+server 服务器主程序目录
+share 服务器和客户端共享代码
+libc 加载的第三方库
+
+第三方库文件放到快盘里
+#================================================
+1.
+google-preftools,tcmalloc要这么装
+./configure --enable-frame_pointers
+make
+sudo make install
+
+1.9.1  在 ubuntu 14.04 原生gcc编译安装报错
+more information https://github.com/gperftools/gperftools/issues/447  https://github.com/gperftools/gperftools/issues/650
+2.1 修复
+
+2.
+sudo apt-get install liblua5.1-0-dev
+
+3.
+sudo apt-get install libmysqlclient-dev
+
+4.
+sudo apt-get install libtolua++5.1-dev
+
+5.
+sudo apt-get install scons
+wget "http://downloads.sourceforge.net/project/jsoncpp/jsoncpp/0.5.0/jsoncpp-src-0.5.0.tar.gz?r=http%3A%2F%2Fsourceforge.net%2Fprojects%2Fjsoncpp%2F&ts=1294425421&use_mirror=freefr"
+tar -xvzf jsoncpp-src-0.5.0.tar.gz
+cd jsoncpp-src-0.5.0
+scons platform=linux-gcc
+
+6.
+tar -zxvf openssl-1.0.0d.tar.gz 
+cd openssl-1.0.0d/
+#./Configure -m64 shared
+./config -m64 shared -fPIC
+make
+sudo make install
+
+7.
+tar -zxvf curl-7.25.0.tar.gz
+cd curl-7.25.0/
+./configure --with-ssl=/usr/local/ssl
+make
+sudo make install
+
+8.
+sudo apt-get install apache2
+sudo apt-get install phpmyadmin
+ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf.d/phpmyadmin.conf
+/etc/init.d/apache2 restart
+
+9.
+protocol buffer 安装
+./configure  
+make
+make check   
+make install 
+note: 动态库在 /usr/local/lib 里 使用protoc 注意添加
+
+10.
+cmake 
+sudo apt-get install cmake
+
+cmake 有的话就源安装
+libevent cmake 通用安装
+./configure
+make && make install
+#================================================
+
+boost 安装
+wget http://cznic.dl.sourceforge.net/project/boost/boost/1.55.0/boost_1_55_0.tar.gz
+./bootstrap.sh 
+sudo ./b2 install
+
+protocol buffer 安装
+./configure  
+make
+make check   
+make install 
+note: 动态库在 /usr/local/lib 里 使用protoc 注意添加
+
+安装mongodb
+apt-get install mongodb
+
+安装mongodb c driver
+apt-get install libmongo-client-dev // 这个是另一个mongodb C driver 不是官方 使用官方的
+
+安装官方mongodb c driver
+from release tarball
+http://mongoc.org/libmongoc/current/installing.html
+building from git 太慢了
+
+wget https://github.com/mongodb/mongo-c-driver/releases/download/1.8.1/mongo-c-driver-1.8.1.tar.gz
+tar xzf mongo-c-driver-1.8.1.tar.gz
+cd mongo-c-driver-1.8.1
+./configure --disable-automatic-init-and-cleanup
+make
+sudo make install
+
+mongodb c driver 官方的包含下面的bson了 可以不安装
+
+安装 bson
+https://github.com/mongodb/libbson/tree/master/
+
+#Building from git
+#To build an unreleased version of libbson from git requires additional dependencies.
+#apt-get install git-core automake autoconf libtool gcc
+#git clone git://github.com/mongodb/libbson.git
+#cd libbson/
+#git checkout x.y.z  # To build a particular release
+#./autogen.sh
+#make
+#sudo make install
+
+wget https://github.com/mongodb/libbson/releases/download/1.8.1/libbson-1.8.1.tar.gz
+tar -xzf libbson-1.8.1.tar.gz
+cd libbson-1.8.1/
+./configure
+$ make
+$ sudo make install

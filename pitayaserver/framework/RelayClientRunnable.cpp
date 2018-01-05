@@ -61,7 +61,7 @@ void CRelayClientRunnable::run()
 		//todo multi thread lock
 		sSessCtrl->AddRelayClientSession(pRelay);
 
-		handlerOnConnect(false, i);
+		handlerOnConnect(pRelay->GetHandler(), false, i);
 	}
 
 //	pClient->StartClient();
